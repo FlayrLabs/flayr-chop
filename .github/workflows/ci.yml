@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macOS (AU + VST3), os: macos-14 }
+          - { name: Windows (VST3), os: windows-2022 }
+          - { name: Linux (VST3 + LV2), os: ubuntu-22.04 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libfreetype6-dev libfontconfig1-dev libx11-dev libxcomposite-dev \
+            libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev libgl1-mesa-dev
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DFLAYR_CHOP_COPY_AFTER_BUILD=OFF
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+
+      - name: DSP tests
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Upload plug-ins
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlayrChop-${{ runner.os }}
+          path: |
+            build/FlayrChop_artefacts/Release/AU
+            build/FlayrChop_artefacts/Release/VST3
+            build/FlayrChop_artefacts/Release/LV2
+          if-no-files-found: error
+          retention-days: 14

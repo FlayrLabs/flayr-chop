@@ -1,0 +1,21 @@
+Installing Flayr Chop on macOS
+==============================
+
+1. Drag "Flayr Chop.component" onto "Drag AU here".
+   (Logic Pro, GarageBand, MainStage and other Audio Unit hosts.)
+
+2. Drag "Flayr Chop.vst3" onto "Drag VST3 here".
+   (Ableton Live, FL Studio, Cubase, Studio One, Reaper, Bitwig and other VST3 hosts.)
+
+   macOS asks for your password because these are the shared plug-in folders.
+   You can install either one or both.
+
+3. Restart your DAW, or rescan plug-ins:
+   - Logic Pro: Settings > Plug-in Manager > Reset & Rescan Selection if it doesn't appear.
+     It is an instrument: Software Instrument track > Instrument slot > AU Instruments > Flayr Labs > Flayr Chop.
+   - Ableton Live: Settings > Plug-Ins > turn on "Use VST3 Plug-In System Folders" > Rescan.
+   - FL Studio: Options > Manage plugins > Find more plugins.
+   - Reaper: Preferences > Plug-ins > VST > Re-scan.
+
+The plug-ins are signed and notarized by Flayr Labs LLC.
+Source code, help and updates: https://github.com/FlayrLabs/flayr-chop
