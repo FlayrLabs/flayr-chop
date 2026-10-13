@@ -160,5 +160,53 @@ int main (int argc, char** argv)
                     && std::abs (copy.getSampleBpm() - proc.getSampleBpm()) < 1e-9 && copy.numStems() == proc.numStems();
     std::printf ("state round trip: %s (%d/64 cues, bpm %.2f, %d stems, %zu bytes)\n", ok ? "OK" : "FAILED", same,
                  copy.getSampleBpm(), copy.numStems(), state.getSize());
-    return ok ? 0 : 2;
+    if (! ok)
+        return 2;
+
+    // The cue workflow: clear, play the track, hit an empty pad over MIDI, move, copy, nudge, end.
+    int fails = 0;
+    auto expect = [&] (bool cond, const char* what) { if (! cond) { ++fails; std::printf ("WORKFLOW FAIL: %s\n", what); } };
+    std::vector<int> all;
+    for (int i = 0; i < chop::kNumPads; ++i) all.push_back (i);
+    proc.deletePads (all);
+    int filled = 0;
+    for (int i = 0; i < chop::kNumPads; ++i) filled += proc.getPad (i).hasCue() ? 1 : 0;
+    expect (filled == 0, "clear all");
+
+    proc.snapUI = false;
+    proc.setPlayhead (10.0);
+    proc.play();
+    juce::AudioBuffer<float> blk (2, 512);
+    juce::MidiBuffer none;
+    for (int b = 0; b < 94; ++b) proc.processBlock (blk, none); // ~1 s of playback
+    const double heard = proc.getPlayhead();
+    juce::MidiBuffer hit;
+    hit.addEvent (juce::MidiMessage::noteOn (1, chop::kFirstPadNote + 3, (juce::uint8) 100), 0);
+    proc.processBlock (blk, hit);
+    waitFor ([&] { return proc.getPad (3).hasCue(); }, 2.0);
+    expect (proc.getPad (3).hasCue() && std::abs (proc.getPad (3).cue - heard) < 0.03, "MIDI hit on an empty pad drops a cue at the playhead");
+    std::printf ("live cue: playhead %.3f s -> pad cue %.3f s\n", heard, proc.getPad (3).cue);
+    expect (std::abs (heard - 11.0) < 0.1, "transport plays from the playhead in real time");
+    proc.stop();
+    for (int b = 0; b < 4; ++b) proc.processBlock (blk, none);
+    expect (! proc.isPlaying(), "stop");
+
+    proc.setCueAtPlayhead (0);
+    expect (proc.getPad (0).hasCue(), "empty pad click sets a cue");
+    const double c0 = proc.getPad (0).cue;
+    proc.movePads ({ 0 }, 8, false);
+    expect (! proc.getPad (0).hasCue() && std::abs (proc.getPad (8).cue - c0) < 1e-9, "drag pad onto pad moves it");
+    proc.movePads ({ 8 }, 9, true);
+    expect (proc.getPad (8).hasCue() && std::abs (proc.getPad (9).cue - c0) < 1e-9, "option-drag copies");
+    proc.movePads ({ 3, 8, 9 }, 4, true);
+    expect (proc.getPad (4).hasCue() && proc.getPad (9).hasCue() && proc.getPad (10).hasCue(), "multi-pad copy keeps the layout");
+    proc.nudge ({ 8 }, 0.01);
+    expect (std::abs (proc.getPad (8).cue - (c0 + 0.01)) < 1e-9, "nudge");
+    proc.setEnd (8, c0 + 0.5);
+    expect (std::abs (proc.padEnd (8) - (c0 + 0.5)) < 1e-6, "end handle");
+    proc.select (8, false);
+    proc.select (9, true);
+    expect (proc.getSelection().size() == 2, "shift-click multi-select");
+    std::printf ("workflow: %s\n", fails == 0 ? "OK" : "FAILED");
+    return fails == 0 ? 0 : 3;
 }

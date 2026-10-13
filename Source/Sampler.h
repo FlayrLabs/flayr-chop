@@ -42,15 +42,19 @@ struct Pad
     double end = -1.0;      // seconds; negative = runs to the next cue
     float gainDb = 0.0f;
     float pan = 0.0f;       // -1..1
-    float tape = 0.0f;      // per-pad pitch in semitones, tape style (changes speed too)
+    float keyShift = 0.0f;  // per-pad key in semitones, time kept (rendered with HQ Stretch)
+    float stretch = 0.0f;   // per-pad length change in percent (-75 .. +300), pitch kept
+    float filter = 0.0f;    // per-pad filter: -1 low-pass .. 0 off .. +1 high-pass
     float attackMs = 1.0f;
     float releaseMs = 40.0f;
     PadMode mode = PadMode::Trigger;
     bool reverse = false;
     int choke = 0;          // 0 = none, otherwise pads in the same group cut each other
     uint32_t stemMask = 0xffffffffu;
+    bool favorite = false;  // locked: auto-chop leaves this pad alone
 
     bool hasCue() const { return cue >= 0.0; }
+    bool needsRender() const { return std::abs (keyShift) > 1e-3f || std::abs (stretch) > 1e-3f; }
 };
 
 // A snapshot handed from worker / message threads to the audio thread. Every snapshot gets a
@@ -130,6 +134,29 @@ struct KeysRender
     std::array<StereoPtr, 2 * kKeysRange + 1> notes {};
 };
 
+// Pads with their own key shift or time stretch, rendered from the source with HQ Stretch.
+struct PadRender
+{
+    StereoPtr buf;              // the slice, stems mixed by the pad's mask, start to end
+    uint64_t renderedGen = 0;   // the main render it belongs to
+    double cue = -1.0, end = -1.0;
+    float keyShift = 0.0f, stretch = 0.0f;
+    uint32_t mask = 0;
+    double startPos = 0.0, endPos = 0.0; // in Rendered positions, for the playhead
+
+    bool matches (const Pad& p, double endSec, uint64_t gen) const
+    {
+        return buf != nullptr && renderedGen == gen && std::abs (cue - p.cue) < 1e-9 && std::abs (end - endSec) < 1e-9
+               && std::abs (keyShift - p.keyShift) < 1e-4f && std::abs (stretch - p.stretch) < 1e-4f && mask == p.stemMask;
+    }
+};
+
+struct PadRenders
+{
+    uint64_t gen = 0;
+    std::array<PadRender, kNumPads> pads {};
+};
+
 struct PadTable
 {
     uint64_t gen = 0;
@@ -178,6 +205,7 @@ struct Context
     const Rendered* rendered = nullptr;
     const PadTable* pads = nullptr;
     const KeysRender* keys = nullptr;
+    const PadRenders* padRenders = nullptr;
     Globals g;
 };
 
@@ -231,6 +259,8 @@ public:
         sr = sampleRate;
         for (auto& v : voices)
             v = Voice {};
+        preview = Voice {};
+        previewView.on.store (false);
         for (auto& f : filt)
             f.reset();
         filterSmoothed = 0.0f;
@@ -288,7 +318,25 @@ public:
         const double end = std::max (start + 1.0, c.pads->endSec[(size_t) pad] * r.positionsPerSecond);
         v.startPos = start;
         v.endPos = std::min (end, (double) r.length());
-        v.inc = r.rate * std::pow (2.0, p.tape / 12.0);
+        v.inc = r.rate;
+
+        // A pad with its own key shift / stretch plays its own render when it's ready, and
+        // falls back to tape-style pitch until then.
+        if (! c.g.keysMode && p.needsRender())
+        {
+            const auto* pr = c.padRenders != nullptr ? &c.padRenders->pads[(size_t) pad] : nullptr;
+            if (pr != nullptr && pr->matches (p, c.pads->endSec[(size_t) pad], r.gen))
+            {
+                useBuffer (v, pr->buf.get(), pr->startPos, pr->endPos);
+                v.padRenders = c.padRenders;
+                v.padRendersGen = c.padRenders->gen;
+                v.inc = r.stretched ? 1.0 : r.rate;
+            }
+            else
+            {
+                v.inc *= std::pow (2.0, p.keyShift / 12.0);
+            }
+        }
 
         // Keys mode: use the time-kept render of this semitone when it is ready.
         if (c.g.keysMode)
@@ -301,13 +349,9 @@ public:
             {
                 v.keys = k;
                 v.keysGen = k->gen;
-                v.keysBuf = k->notes[(size_t) idx].get();
-                v.startPos = 0.0;
-                v.endPos = (double) v.keysBuf->size();
-                v.keysOrigin = k->startPos;
-                v.keysScale = (k->endPos - k->startPos) / std::max (1.0, v.endPos);
+                useBuffer (v, k->notes[(size_t) idx].get(), k->startPos, k->endPos);
                 // Keys buffers are already stretched; in tape mode they carry no tempo change.
-                v.inc = r.stretched ? std::pow (2.0, p.tape / 12.0) : r.rate * std::pow (2.0, p.tape / 12.0);
+                v.inc = r.stretched ? 1.0 : r.rate;
             }
             else
             {
@@ -327,6 +371,39 @@ public:
         v.attackStep = 1.0f / std::max (1.0f, p.attackMs * 0.001f * (float) sr);
         v.releaseSamples = std::max (1.0f, p.releaseMs * 0.001f * (float) sr);
         v.stemMask = p.stemMask;
+        v.filter = std::clamp (p.filter, -1.0f, 1.0f);
+    }
+
+    // The whole track, played from a position (the transport above the waveform). It plays
+    // alongside the pads and is never choked by them.
+    void startPreview (double sourceSec, const Context& c)
+    {
+        if (c.rendered == nullptr || c.rendered->length() == 0)
+            return;
+        const auto& r = *c.rendered;
+        preview = Voice {};
+        preview.active = true;
+        preview.rendered = &r;
+        preview.renderedGen = r.gen;
+        preview.startPos = 0.0;
+        preview.endPos = (double) r.length();
+        preview.pos = std::clamp (sourceSec * r.positionsPerSecond, 0.0, preview.endPos - 1.0);
+        preview.inc = r.rate;
+        preview.attackStep = 1.0f / (float) (0.003 * sr);
+        preview.releaseSamples = (float) (0.01 * sr);
+        previewView.on.store (true);
+    }
+
+    void stopPreview()
+    {
+        if (preview.active)
+            preview.fastRelease (sr);
+    }
+
+    bool isPreviewing() const { return preview.active && ! preview.released; }
+    double previewSourceSec() const
+    {
+        return preview.rendered != nullptr ? preview.pos / preview.rendered->positionsPerSecond : 0.0;
     }
 
     void noteOff (int note)
@@ -345,14 +422,22 @@ public:
 
     void render (float* outL, float* outR, int n, const Context& c)
     {
+        // The preview follows a new render (key or tempo changed) from the same spot in the song.
+        if (preview.active && ! preview.released && c.rendered != nullptr && c.rendered != preview.rendered)
+        {
+            const double at = previewSourceSec();
+            startPreview (at, c);
+        }
+
         // Stem weights per voice are fixed for the block.
         const int numStems = c.g.numStems;
-        for (auto& v : voices)
+        for (auto* vp : allVoices())
         {
+            auto& v = *vp;
             if (! v.active)
                 continue;
             v.useFull = true;
-            if (v.keysBuf == nullptr && numStems > 0 && v.rendered != nullptr && (int) v.rendered->stems.size() >= numStems)
+            if (v.buf == nullptr && numStems > 0 && v.rendered != nullptr && (int) v.rendered->stems.size() >= numStems)
             {
                 for (int s = 0; s < numStems; ++s)
                 {
@@ -363,9 +448,13 @@ public:
             }
         }
 
-        for (auto& v : voices)
-            if (v.active)
-                renderVoice (v, outL, outR, n, numStems);
+        for (auto* v : allVoices())
+            if (v->active)
+                renderVoice (*v, outL, outR, n, numStems);
+        if (! preview.active)
+            previewView.on.store (false, std::memory_order_relaxed);
+        else
+            previewView.sourceSec.store ((float) previewSourceSec(), std::memory_order_relaxed);
 
         applyFilter (outL, outR, n, c.g.filter);
 
@@ -382,7 +471,7 @@ public:
             view.pad.store (v.active ? v.pad : -1, std::memory_order_relaxed);
             if (v.active && v.rendered != nullptr)
             {
-                const double renderedPos = v.keysBuf != nullptr ? v.keysOrigin + v.pos * v.keysScale : v.pos;
+                const double renderedPos = v.buf != nullptr ? v.bufOrigin + v.pos * v.bufScale : v.pos;
                 view.sourceSec.store ((float) (renderedPos / v.rendered->positionsPerSecond), std::memory_order_relaxed);
                 view.level.store (v.env, std::memory_order_relaxed);
             }
@@ -396,6 +485,16 @@ public:
         for (const auto& v : voices)
             if (v.active)
                 g = std::min (g, v.renderedGen);
+        if (preview.active)
+            g = std::min (g, preview.renderedGen);
+        return g;
+    }
+    uint64_t oldestPadRendersInUse() const
+    {
+        uint64_t g = UINT64_MAX;
+        for (const auto& v : voices)
+            if (v.active && v.padRenders != nullptr)
+                g = std::min (g, v.padRendersGen);
         return g;
     }
     uint64_t oldestKeysInUse() const
@@ -416,6 +515,11 @@ public:
     }
 
     std::array<VoiceView, kMaxVoices> views;
+    struct PreviewView
+    {
+        std::atomic<bool> on { false };
+        std::atomic<float> sourceSec { 0.0f };
+    } previewView;
 
 private:
     struct Voice
@@ -423,11 +527,14 @@ private:
         bool active = false, released = false, reverse = false, useFull = true;
         int note = -1, pad = -1, choke = 0;
         PadMode mode = PadMode::Trigger;
-        uint64_t age = 0, renderedGen = 0, keysGen = 0;
+        uint64_t age = 0, renderedGen = 0, keysGen = 0, padRendersGen = 0;
         const Rendered* rendered = nullptr;
         const KeysRender* keys = nullptr;
-        const Stereo* keysBuf = nullptr;
-        double keysOrigin = 0.0, keysScale = 1.0;
+        const PadRenders* padRenders = nullptr;
+        const Stereo* buf = nullptr;            // a pre-rendered slice (Keys mode or a pad's own key/stretch)
+        double bufOrigin = 0.0, bufScale = 1.0; // maps buffer positions back to Rendered positions
+        float filter = 0.0f;
+        std::array<detail::Svf, 2> svf {};
         double pos = 0, inc = 1, startPos = 0, endPos = 0;
         float gainL = 1, gainR = 1;
         float env = 0, attackStep = 1, releaseSamples = 1, releaseStep = 0;
@@ -450,6 +557,24 @@ private:
         }
     };
 
+    static void useBuffer (Voice& v, const Stereo* b, double originPos, double endPos)
+    {
+        v.buf = b;
+        v.startPos = 0.0;
+        v.endPos = (double) b->size();
+        v.bufOrigin = originPos;
+        v.bufScale = (endPos - originPos) / std::max (1.0, v.endPos);
+    }
+
+    std::array<Voice*, kMaxVoices + 1> allVoices()
+    {
+        std::array<Voice*, kMaxVoices + 1> a {};
+        for (int i = 0; i < kMaxVoices; ++i)
+            a[(size_t) i] = &voices[(size_t) i];
+        a[kMaxVoices] = &preview;
+        return a;
+    }
+
     Voice& freeVoice()
     {
         for (auto& v : voices)
@@ -465,7 +590,12 @@ private:
 
     void renderVoice (Voice& v, float* outL, float* outR, int n, int numStems)
     {
-        const Stereo* single = v.keysBuf != nullptr ? v.keysBuf : (v.useFull ? v.rendered->full.get() : nullptr);
+        const Stereo* single = v.buf != nullptr ? v.buf : (v.useFull ? v.rendered->full.get() : nullptr);
+        // Per-pad filter, same curve as the global one.
+        const float fa = std::abs (v.filter);
+        const bool fOn = fa > 0.02f, fHigh = v.filter > 0.0f;
+        const float fHz = fHigh ? 20.0f * std::pow (400.0f, fa) : 20000.0f * std::pow (1.0f / 250.0f, fa);
+        const float fG = std::tan (3.14159265f * std::min (fHz, (float) sr * 0.45f) / (float) sr);
         const double edgeFade = 0.003 * sr; // de-click the end of every slice
         const double len = (double) (single != nullptr ? single->size() : v.rendered->length());
 
@@ -529,6 +659,15 @@ private:
                 }
             }
 
+            if (fOn)
+            {
+                float lo, hi;
+                v.svf[0].tick (l, fG, 1.2f, lo, hi);
+                l = fHigh ? hi : lo;
+                v.svf[1].tick (r, fG, 1.2f, lo, hi);
+                r = fHigh ? hi : lo;
+            }
+
             const float e = v.env * edge;
             outL[i] += l * e * v.gainL;
             outR[i] += r * e * v.gainR;
@@ -566,6 +705,7 @@ private:
 
     double sr = 48000.0;
     std::array<Voice, kMaxVoices> voices {};
+    Voice preview {};
     std::array<detail::Svf, 2> filt {};
     float filterSmoothed = 0.0f;
     uint64_t clock = 0;

@@ -106,7 +106,8 @@ static void testRendererPublishes()
 {
     Published<Rendered> rendered;
     Published<KeysRender> keys;
-    Renderer r (rendered, keys);
+    Published<PadRenders> padRenders;
+    Renderer r (rendered, keys, padRenders);
 
     auto src = std::make_shared<Source>();
     src->id = 1;
@@ -301,8 +302,91 @@ static void testStemsAndKeys()
     CHECK (smp.views[0].sourceSec.load() > 1.0f || smp.activeVoices() == 0, "keys playhead inside the pad's slice");
 }
 
+static void testPreviewAndPadRenders()
+{
+    Published<Rendered> rendered;
+    Published<KeysRender> keys;
+    Published<PadRenders> padRenders;
+    Renderer r (rendered, keys, padRenders);
+    auto src = std::make_shared<Source>();
+    src->id = 7;
+    src->sampleRate = kSr;
+    src->full = tone (440.0, 8.0);
+    RenderSettings s;
+    s.source = src;
+    r.request (s);
+    while (r.busy || rendered.get() == nullptr)
+        std::this_thread::sleep_for (std::chrono::milliseconds (5));
+
+    // The track preview plays from where it's asked and moves along.
+    Sampler smp;
+    smp.prepare (kSr);
+    PadTable t;
+    t.pads[0].cue = 2.0;
+    t.pads[0].keyShift = 5.0f;
+    t.pads[0].stretch = 100.0f; // twice as long
+    t.pads[1].cue = 3.0;
+    t.pads[1].filter = -0.9f; // dark low-pass
+    resolveEnds (t, 8.0);
+    Context c;
+    c.rendered = rendered.get();
+    c.pads = &t;
+    c.g.velocity = 0.0f;
+    smp.startPreview (1.5, c);
+    std::vector<float> l (24000), rr (24000);
+    smp.render (l.data(), rr.data(), 24000, c);
+    CHECK (smp.isPreviewing() && std::abs (smp.previewSourceSec() - 2.0) < 0.01, "preview at %.3f s", smp.previewSourceSec());
+    CHECK (std::abs (frequency (l, 2000, 22000) - 440.0) < 2.0, "preview pitch");
+    smp.stopPreview();
+    std::fill (l.begin(), l.end(), 0.0f);
+    smp.render (l.data(), rr.data(), 24000, c);
+    CHECK (! smp.isPreviewing() && rms (l, 2000, 24000) < 1e-6, "preview stops");
+
+    // A pad with its own key shift and stretch gets its own render: +5 st, twice as long.
+    PadJob j;
+    j.pad = 0;
+    j.startSec = 2.0;
+    j.endSec = 3.0;
+    j.keyShift = 5.0f;
+    j.stretch = 100.0f;
+    r.requestPads ({ j });
+    while (r.busy)
+        std::this_thread::sleep_for (std::chrono::milliseconds (5));
+    const auto* pr = padRenders.get();
+    CHECK (pr != nullptr && pr->pads[0].matches (t.pads[0], t.endSec[0], c.rendered->gen), "pad render published and matching");
+    c.padRenders = pr;
+    smp.prepare (kSr);
+    std::vector<float> pl ((size_t) (3 * kSr)), pr2 ((size_t) (3 * kSr));
+    smp.noteOn (kFirstPadNote, 1.0f, c);
+    smp.render (pl.data(), pr2.data(), (int) pl.size(), c);
+    const double want = 440.0 * std::pow (2.0, 5.0 / 12.0);
+    CHECK (std::abs (frequency (pl, 2000, (int) (1.8 * kSr)) - want) < 3.0, "pad key shift %.1f Hz, want %.1f",
+           frequency (pl, 2000, (int) (1.8 * kSr)), want);
+    CHECK (rms (pl, (int) (1.8 * kSr), (int) (1.95 * kSr)) > 0.1 && rms (pl, (int) (2.05 * kSr), (int) (3 * kSr)) < 1e-6,
+           "pad stretched to 2 s");
+
+    // Per-pad low-pass darkens a bright tone.
+    auto bright = std::make_shared<Stereo>();
+    bright->resize ((int) (8 * kSr));
+    for (int i = 0; i < bright->size(); ++i)
+        bright->l[(size_t) i] = bright->r[(size_t) i] = (float) (0.3 * std::sin (2 * kPi * 6000.0 * i / kSr));
+    auto rb = std::make_unique<Rendered>();
+    rb->full = bright;
+    rb->positionsPerSecond = kSr;
+    Published<Rendered> brightPub;
+    brightPub.publish (std::move (rb));
+    c.rendered = brightPub.get();
+    c.padRenders = nullptr;
+    smp.prepare (kSr);
+    std::vector<float> fl (24000), fr (24000);
+    smp.noteOn (kFirstPadNote + 1, 1.0f, c);
+    smp.render (fl.data(), fr.data(), 24000, c);
+    CHECK (rms (fl, 4000, 20000) < 0.02, "per-pad low-pass cuts 6 kHz (rms %.3f)", rms (fl, 4000, 20000));
+}
+
 int main()
 {
+    testPreviewAndPadRenders();
     testStemsAndKeys();
     testStretchAccuracy();
     testChunkedMatchesFull();

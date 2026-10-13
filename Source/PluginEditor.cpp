@@ -35,6 +35,9 @@ static juce::String padLabel (int i)
     return juce::String::charToString ((juce::juce_wchar) ('A' + i / kPadsPerBank)) + juce::String (i % kPadsPerBank + 1);
 }
 
+// Computer keys for the 16 pads of the bank on screen: two piano-style rows.
+static const char* const kPadKeys = "awsedftgyhujkol;";
+
 static juce::String timeString (double s)
 {
     const int m = (int) (s / 60.0);
@@ -76,7 +79,9 @@ void LookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int w, int 
     const float ang = start + pos * (end - start);
     const float thick = juce::jmax (2.5f, r * 0.1f);
     const bool bipolar = s.getProperties().contains ("bipolar");
-    const float from = bipolar ? (start + end) * 0.5f : start;
+    // Bipolar knobs draw from their zero (not always the middle, e.g. -75..+300 %).
+    const float zero = s.getMinimum() < 0.0 && s.getMaximum() > 0.0 ? (float) s.valueToProportionOfLength (0.0) : 0.5f;
+    const float from = bipolar ? start + zero * (end - start) : start;
 
     juce::Path track;
     track.addCentredArc (c.x, c.y, r - thick, r - thick, 0.0f, start, end, true);
@@ -165,18 +170,23 @@ void Waveform::zoomAround (double t, double factor)
 
 int Waveform::flagAt (juce::Point<float> p) const
 {
-    if (p.y > 20.0f)
-        return -1;
-    // The flag nearest the pointer on the visible bank, then other banks.
+    // A cue's flag, or its line anywhere down the waveform (within a few pixels).
     int best = -1;
-    float bestD = 14.0f;
+    float bestD = 1e9f;
     for (int i = 0; i < kNumPads; ++i)
     {
         const auto pad = proc.getPad (i);
         if (! pad.hasCue())
             continue;
         const float x = xAt (pad.cue);
-        const float d = std::abs (p.x - (x + 12.0f)) - (i / kPadsPerBank == proc.bank ? 4.0f : 0.0f);
+        const bool inBank = i / kPadsPerBank == proc.bank;
+        float d = 1e9f;
+        if (p.y <= 20.0f && p.x >= x - 2.0f && p.x <= x + 28.0f)
+            d = std::abs (p.x - (x + 12.0f)) * 0.5f; // the flag
+        else if (std::abs (p.x - x) <= 5.0f)
+            d = std::abs (p.x - x);                   // the line
+        if (! inBank)
+            d += 3.0f; // prefer the bank on screen
         if (d < bestD)
         {
             bestD = d;
@@ -184,6 +194,22 @@ int Waveform::flagAt (juce::Point<float> p) const
         }
     }
     return best;
+}
+
+int Waveform::endHandleAt (juce::Point<float> p) const
+{
+    // The end handle of a selected pad: a small tab at the bottom of its slice.
+    if (p.y < (float) getHeight() - 18.0f)
+        return -1;
+    for (int i : proc.getSelection())
+    {
+        if (! proc.getPad (i).hasCue())
+            continue;
+        const float x = xAt (proc.padEnd (i));
+        if (p.x >= x - 14.0f && p.x <= x + 3.0f)
+            return i;
+    }
+    return -1;
 }
 
 void Waveform::paint (juce::Graphics& g)
@@ -206,13 +232,17 @@ void Waveform::paint (juce::Graphics& g)
     const float mid = 20.0f + (h - 20.0f) * 0.5f;
     const float amp = (h - 26.0f) * 0.5f;
 
-    // Selected slice.
+    // Selected slices.
     const int sel = proc.selectedPad;
-    const auto selPad = proc.getPad (sel);
-    if (selPad.hasCue())
+    const auto selection = proc.getSelection();
+    for (int i : selection)
     {
-        const float x0 = xAt (selPad.cue), x1 = xAt (proc.padEnd (sel));
-        g.setColour (padColour (sel).withAlpha (0.12f));
+        const auto p = proc.getPad (i);
+        if (! p.hasCue())
+            continue;
+        const double endT = i == draggingEnd ? dragTime : proc.padEnd (i);
+        const float x0 = xAt (i == draggingPad ? dragTime : p.cue), x1 = xAt (endT);
+        g.setColour (padColour (i).withAlpha (i == sel ? 0.14f : 0.09f));
         g.fillRect (juce::Rectangle<float> (x0, 20.0f, x1 - x0, h - 20.0f));
     }
 
@@ -312,7 +342,28 @@ void Waveform::paint (juce::Graphics& g)
             g.drawText (padLabel (i), flag, juce::Justification::centred);
         }
 
-    // Playheads.
+    // End handles of the selected pads (drag to set where they stop).
+    for (int i : selection)
+    {
+        if (! proc.getPad (i).hasCue())
+            continue;
+        const float x = xAt (i == draggingEnd ? dragTime : proc.padEnd (i));
+        juce::Path tab;
+        tab.addTriangle (x, h - 16.0f, x, h, x - 12.0f, h);
+        g.setColour (padColour (i).withAlpha (proc.getPad (i).end >= 0.0 ? 1.0f : 0.55f));
+        g.fillPath (tab);
+        g.fillRect (x - 1.0f, 20.0f, 1.0f, h - 20.0f);
+    }
+
+    // The track's own playhead (the transport), then the pads' playheads.
+    {
+        const float x = xAt (proc.getPlayhead());
+        g.setColour (warn);
+        g.fillRect (x - 1.0f, 0.0f, 2.0f, h);
+        juce::Path head;
+        head.addTriangle (x - 6.0f, 0.0f, x + 6.0f, 0.0f, x, 8.0f);
+        g.fillPath (head);
+    }
     for (const auto& v : proc.sampler.views)
     {
         if (v.pad.load() < 0)
@@ -331,12 +382,13 @@ void Waveform::paint (juce::Graphics& g)
 void Waveform::mouseMove (const juce::MouseEvent& e)
 {
     const int f = flagAt (e.position);
+    const int h = endHandleAt (e.position);
     if (f != hoverFlag)
     {
         hoverFlag = f;
-        setMouseCursor (f >= 0 ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor);
         repaint();
     }
+    setMouseCursor (f >= 0 || h >= 0 ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor);
 }
 
 void Waveform::mouseDown (const juce::MouseEvent& e)
@@ -348,78 +400,119 @@ void Waveform::mouseDown (const juce::MouseEvent& e)
     {
         juce::PopupMenu m;
         const int sel = proc.selectedPad;
-        m.addItem (1, "Set " + padLabel (sel) + " cue here");
-        int empty = -1;
-        for (int i = proc.bank * kPadsPerBank; i < (proc.bank + 1) * kPadsPerBank; ++i)
-            if (! proc.getPad (i).hasCue()) { empty = i; break; }
-        m.addItem (2, empty >= 0 ? "Add cue on " + padLabel (empty) : "Add cue (bank full)", empty >= 0);
+        const int empty = proc.firstEmptyPad (proc.bank);
+        m.addItem (1, empty >= 0 ? "Add cue here (" + padLabel (empty) + ")" : "Add cue (all pads used)", empty >= 0);
+        m.addItem (2, "Move " + padLabel (sel) + " cue here");
         m.addItem (3, "Set " + padLabel (sel) + " end here", proc.getPad (sel).hasCue() && t > proc.getPad (sel).cue);
-        m.addItem (4, "Clear " + padLabel (sel) + " end");
+        m.addItem (4, "Clear " + padLabel (sel) + " end", proc.getPad (sel).end >= 0.0);
+        m.addItem (6, "Delete " + padLabel (sel), proc.getPad (sel).hasCue());
         m.addSeparator();
         m.addItem (5, "Zoom to fit");
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(), [this, t, sel, empty] (int r) {
-            if (r == 1) proc.setCue (sel, t);
-            if (r == 2 && empty >= 0) { proc.setCue (empty, t); proc.selectedPad = empty; }
-            if (r == 3) { auto p = proc.getPad (sel); p.end = t; proc.setPad (sel, p); }
-            if (r == 4) { auto p = proc.getPad (sel); p.end = -1; proc.setPad (sel, p); }
+            if (r == 1 && empty >= 0) { proc.setCue (empty, t); proc.select (empty, false); }
+            if (r == 2) proc.setCue (sel, t);
+            if (r == 3) proc.setEnd (sel, t);
+            if (r == 4) proc.setEnd (sel, -1.0);
             if (r == 5) resetView();
+            if (r == 6) proc.deletePads ({ sel });
             if (onSelectionChanged) onSelectionChanged();
             repaint();
         });
         return;
     }
+
     dragViewStart = viewStart;
-    draggingPad = flagAt (e.position);
+    downTime = t;
+    movedSinceDown = false;
+    creating = false;
+    draggingEnd = endHandleAt (e.position);
+    draggingPad = draggingEnd >= 0 ? -1 : flagAt (e.position);
+    if (draggingEnd >= 0)
+    {
+        dragTime = proc.padEnd (draggingEnd);
+        return;
+    }
     if (draggingPad >= 0)
     {
         dragTime = proc.getPad (draggingPad).cue;
-        proc.selectedPad = draggingPad;
+        if (! proc.isSelected (draggingPad) || ! e.mods.isShiftDown())
+            proc.select (draggingPad, e.mods.isShiftDown());
         proc.bank = draggingPad / kPadsPerBank;
         if (onSelectionChanged) onSelectionChanged();
-        return;
     }
-    const int p = proc.padAtTime (t);
-    if (p >= 0)
-    {
-        proc.selectedPad = p;
-        proc.bank = p / kPadsPerBank;
-        if (onSelectionChanged) onSelectionChanged();
-    }
-    repaint();
 }
 
 void Waveform::mouseDrag (const juce::MouseEvent& e)
 {
-    if (draggingPad >= 0)
+    if (proc.getSample() == nullptr || e.mods.isPopupMenu())
+        return;
+    if (e.getDistanceFromDragStart() > 3)
+        movedSinceDown = true;
+    const double t = juce::jlimit (0.0, proc.getSample()->lengthSec(), timeAt (e.position.x));
+
+    if (draggingEnd >= 0 || draggingPad >= 0)
     {
-        dragTime = juce::jmax (0.0, timeAt (e.position.x));
+        dragTime = t;
         repaint();
+        return;
     }
-    else if (proc.getSample() != nullptr && ! e.mods.isPopupMenu())
+    // Dragging empty waveform pulls out a new cue on the next free pad.
+    if (movedSinceDown && ! creating)
     {
-        // Dragging the body scrolls.
-        viewStart = dragViewStart - (double) e.getDistanceFromDragStartX() / juce::jmax (1, getWidth()) * viewLen;
-        clampView();
-        if (onViewChanged) onViewChanged();
-        repaint();
+        const int empty = proc.firstEmptyPad (proc.bank);
+        if (empty >= 0)
+        {
+            creating = true;
+            draggingPad = empty;
+            proc.setCue (empty, downTime);
+            proc.select (empty, false);
+            proc.bank = empty / kPadsPerBank;
+            dragTime = t;
+            if (onSelectionChanged) onSelectionChanged();
+        }
     }
 }
 
-void Waveform::mouseUp (const juce::MouseEvent&)
+void Waveform::mouseUp (const juce::MouseEvent& e)
 {
-    if (draggingPad >= 0)
+    if (draggingEnd >= 0)
     {
-        proc.setCue (draggingPad, dragTime);
-        draggingPad = -1;
-        repaint();
+        proc.setEnd (draggingEnd, dragTime);
+        draggingEnd = -1;
     }
+    else if (draggingPad >= 0)
+    {
+        if (movedSinceDown || creating)
+            proc.setCue (draggingPad, dragTime);
+        draggingPad = -1;
+    }
+    else if (! movedSinceDown && proc.getSample() != nullptr && ! e.mods.isPopupMenu())
+    {
+        // A plain click moves the playhead there (and the music, if it's playing).
+        proc.setPlayhead (downTime);
+        const int p = proc.padAtTime (downTime);
+        if (p >= 0 && ! e.mods.isShiftDown())
+        {
+            proc.select (p, false);
+            proc.bank = p / kPadsPerBank;
+        }
+        if (onSelectionChanged) onSelectionChanged();
+    }
+    creating = false;
+    repaint();
 }
 
 void Waveform::mouseDoubleClick (const juce::MouseEvent& e)
 {
-    if (proc.getSample() == nullptr || e.position.y < 20.0f)
+    // Double-click: a new cue on the next free pad.
+    if (proc.getSample() == nullptr || flagAt (e.position) >= 0)
         return;
-    proc.setCue (proc.selectedPad, timeAt (e.position.x));
+    const int empty = proc.firstEmptyPad (proc.bank);
+    if (empty < 0)
+        return;
+    proc.setCue (empty, timeAt (e.position.x));
+    proc.select (empty, false);
+    proc.bank = empty / kPadsPerBank;
     if (onSelectionChanged) onSelectionChanged();
 }
 
@@ -509,7 +602,8 @@ void PadButton::paint (juce::Graphics& g)
     const auto p = proc.getPad (i);
     const auto b = getLocalBounds().toFloat().reduced (3.0f);
     const auto c = padColour (i);
-    const bool selected = proc.selectedPad == i;
+    const bool primary = proc.selectedPad == i;
+    const bool selected = proc.isSelected (i) || primary;
 
     if (p.hasCue())
     {
@@ -517,43 +611,105 @@ void PadButton::paint (juce::Graphics& g)
                                                  c.withAlpha (0.12f + 0.5f * level), b.getRight(), b.getBottom(), false));
         g.fillRoundedRectangle (b, 8.0f);
         g.setColour (c.withAlpha (0.9f));
-        g.fillRoundedRectangle (b.withHeight (4.0f).translated (0, 0), 2.0f);
+        g.fillRoundedRectangle (b.withHeight (4.0f), 2.0f);
     }
     else
     {
         g.setColour (panel2);
         g.fillRoundedRectangle (b, 8.0f);
     }
-    g.setColour (selected ? juce::Colours::white : (p.hasCue() ? c.withAlpha (0.5f) : line));
+    if (dropHover == i)
+    {
+        g.setColour (accent.withAlpha (0.25f));
+        g.fillRoundedRectangle (b, 8.0f);
+    }
+    g.setColour (selected ? juce::Colours::white.withAlpha (primary ? 1.0f : 0.7f) : (p.hasCue() ? c.withAlpha (0.5f) : line));
     g.drawRoundedRectangle (b, 8.0f, selected ? 2.0f : 1.0f);
 
+    auto inner = b.reduced (10, 8);
     g.setColour (p.hasCue() ? text : dim);
     g.setFont (font (15.0f, true));
-    g.drawText (padLabel (i), b.reduced (10, 8), juce::Justification::topLeft);
+    g.drawText (padLabel (i), inner, juce::Justification::topLeft);
+    g.setFont (font (11.0f, true));
+    g.setColour (dim);
+    const juce::String keyName = juce::String::charToString ((juce::juce_wchar) kPadKeys[i % kPadsPerBank]).toUpperCase();
+    g.drawText (keyName + "  " + juce::MidiMessage::getMidiNoteName (kFirstPadNote + i, true, true, 3), inner,
+                juce::Justification::topRight);
+    if (p.favorite)
+    {
+        g.setColour (warn);
+        g.drawText (juce::String::fromUTF8 ("\xe2\x98\x85"), inner.withTrimmedTop (16), juce::Justification::topRight);
+    }
     g.setFont (font (11.0f));
     g.setColour (dim);
-    g.drawText (juce::MidiMessage::getMidiNoteName (kFirstPadNote + i, true, true, 3), b.reduced (10, 8),
-                juce::Justification::topRight);
     if (p.hasCue())
     {
         const double len = proc.padEnd (i) - p.cue;
         juce::String info = juce::String (len, 2) + "s";
+        if (std::abs (p.keyShift) > 1e-3f) info << "  " << (p.keyShift > 0 ? "+" : "") << juce::String (p.keyShift, 0) << "st";
+        if (std::abs (p.stretch) > 1e-3f) info << "  " << (p.stretch > 0 ? "+" : "") << juce::String (p.stretch, 0) << "%";
         if (p.mode == PadMode::Gate) info << "  GATE";
         if (p.mode == PadMode::Loop) info << "  LOOP";
         if (p.reverse) info << "  REV";
         if (p.stemMask != 0xffffffffu && proc.numStems() > 0) info << "  STEMS";
-        g.drawText (info, b.reduced (10, 8), juce::Justification::bottomLeft);
+        g.drawText (info, inner, juce::Justification::bottomLeft);
+    }
+    else
+    {
+        g.drawText ("set cue", inner, juce::Justification::bottomLeft);
     }
 }
 
 void PadButton::mouseDown (const juce::MouseEvent& e)
 {
     const int i = index();
-    proc.selectedPad = i;
     dragging = false;
-    if (onSelect) onSelect();
-    if (e.mods.isPopupMenu() || ! proc.getPad (i).hasCue())
+    dropHover = -1;
+    if (e.mods.isPopupMenu())
+    {
+        if (! proc.isSelected (i))
+            proc.select (i, false);
+        if (onSelect) onSelect();
+        juce::PopupMenu m;
+        const auto sel = proc.getSelection();
+        const juce::String what = sel.size() > 1 ? juce::String ((int) sel.size()) + " pads" : padLabel (i);
+        m.addItem (1, "Delete " + what);
+        m.addItem (2, proc.getPad (i).favorite ? "Remove favorite" : "Make favorite");
+        m.addItem (3, "Copy " + what + " to the next free pads");
+        m.addItem (4, "Spread " + padLabel (i) + " across the bank in key (-7..+8)", proc.getPad (i).hasCue());
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this), [this, i, sel] (int r) {
+            if (r == 1) proc.deletePads (sel);
+            if (r == 2)
+                for (int k : sel) { auto p = proc.getPad (k); p.favorite = ! proc.getPad (i).favorite; proc.setPad (k, p); }
+            if (r == 3)
+            {
+                const int to = proc.firstEmptyPad (proc.bank);
+                if (to >= 0) proc.movePads (sel, to, true);
+            }
+            if (r == 4) proc.keyShiftPad (i, proc.bank * kPadsPerBank);
+            if (onSelect) onSelect();
+        });
         return;
+    }
+    if (e.mods.isShiftDown() || e.mods.isCommandDown())
+    {
+        proc.select (i, true); // add to / remove from the selection, no sound
+        if (onSelect) onSelect();
+        return;
+    }
+    // Keep a multi-selection when grabbing one of its pads (to drag them all); a click without
+    // a drag selects just this pad on release.
+    keepSelection = proc.isSelected (i) && proc.getSelection().size() > 1;
+    if (! keepSelection)
+        proc.select (i, false);
+    if (onSelect) onSelect();
+
+    if (! proc.getPad (i).hasCue())
+    {
+        proc.setCueAtPlayhead (i); // empty pad: drop a cue where the playhead is
+        if (onSelect) onSelect();
+        return;
+    }
     const bool keys = proc.apvts.getRawParameterValue ("keys")->load() > 0.5f;
     playingNote = keys ? kKeysRootNote : kFirstPadNote + i;
     proc.triggerFromUI (playingNote, true);
@@ -561,27 +717,46 @@ void PadButton::mouseDown (const juce::MouseEvent& e)
 
 void PadButton::mouseDrag (const juce::MouseEvent& e)
 {
-    // Drag a pad out of the plug-in to drop its slice into the DAW (or Finder).
-    if (dragging || getLocalBounds().contains (e.getPosition()) || ! proc.getPad (index()).hasCue())
+    if (dragging || e.mods.isPopupMenu() || ! proc.getPad (index()).hasCue() || e.getDistanceFromDragStart() < 5)
         return;
-    dragging = true;
     if (playingNote >= 0)
     {
         proc.triggerFromUI (playingNote, false);
         playingNote = -1;
     }
-    const auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("Flayr Chop Slices");
-    const auto f = proc.exportSlice (index(), folder);
-    if (f.existsAsFile())
-        juce::DragAndDropContainer::performExternalDragDropOfFiles ({ f.getFullPathName() }, false, this);
+    const int over = padAtScreen ? padAtScreen (e.getScreenPosition()) : -1;
+    if (over < 0)
+    {
+        // Out of the pad grid: hand the slices to the DAW (or Finder).
+        dragging = true;
+        dropHover = -1;
+        if (onDragOut) onDragOut (e);
+        return;
+    }
+    if (over != dropHover)
+    {
+        dropHover = over;
+        if (auto* parent = getParentComponent())
+            parent->repaint();
+    }
 }
 
-void PadButton::mouseUp (const juce::MouseEvent&)
+void PadButton::mouseUp (const juce::MouseEvent& e)
 {
     if (playingNote >= 0)
         proc.triggerFromUI (playingNote, false);
     playingNote = -1;
+    const int i = index();
+    if (! dragging && dropHover >= 0 && dropHover != i && onDropOnPad)
+        onDropOnPad (dropHover, e.mods.isAltDown()); // Option-drag copies, a plain drag moves
+    else if (! dragging && keepSelection && e.getDistanceFromDragStart() < 5)
+        proc.select (i, false);
+    keepSelection = false;
+    dropHover = -1;
+    dragging = false;
+    if (onSelect) onSelect();
 }
+
 } // namespace ui
 
 //==============================================================================
@@ -669,6 +844,43 @@ FlayrChopEditor::FlayrChopEditor (FlayrChopProcessor& owner) : AudioProcessorEdi
     manualTempo.setColour (juce::Slider::textBoxTextColourId, ui::accent);
     manualTempoAtt = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (s, "tempo", manualTempo);
 
+    // Transport and cue tools above the waveform.
+    for (auto* b : { &playBtn, &zoomOutBtn, &zoomInBtn, &nudgeLeftBtn, &nudgeRightBtn, &selectAllBtn, &deleteBtn, &clearAllBtn })
+        addAndMakeVisible (*b);
+    playBtn.setTooltip ("Play the track from the playhead (space). Hit an empty pad while it plays to drop a cue there.");
+    playBtn.onClick = [this] { togglePlay(); };
+    zoomInBtn.onClick = [this] { wave.zoomAround (proc.getPlayhead(), 0.5); };
+    zoomOutBtn.onClick = [this] { wave.zoomAround (proc.getPlayhead(), 2.0); };
+    nudgeLeftBtn.setTooltip ("Nudge the selected cues earlier (shift: by a 16th note; arrow keys work too)");
+    nudgeRightBtn.setTooltip ("Nudge the selected cues later (shift: by a 16th note; arrow keys work too)");
+    nudgeLeftBtn.onClick = [this] { nudgeSelection (-1, juce::ModifierKeys::currentModifiers.isShiftDown()); };
+    nudgeRightBtn.onClick = [this] { nudgeSelection (1, juce::ModifierKeys::currentModifiers.isShiftDown()); };
+    nudgeLeftBtn.setRepeatSpeed (350, 60);
+    nudgeRightBtn.setRepeatSpeed (350, 60);
+    selectAllBtn.setTooltip ("Select every pad in this bank (shift-click pads to pick several)");
+    selectAllBtn.onClick = [this] { proc.selectAll (proc.bank); refreshAll(); };
+    deleteBtn.setTooltip ("Delete the selected cues (backspace)");
+    deleteBtn.onClick = [this] { deleteSelection(); };
+    clearAllBtn.setTooltip ("Clear every pad");
+    clearAllBtn.onClick = [this] {
+        juce::PopupMenu m;
+        m.addItem (1, "Clear this bank");
+        m.addItem (2, "Clear all 4 banks");
+        m.addItem (3, "Clear all, except favorites");
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (clearAllBtn), [this] (int r) {
+            std::vector<int> which;
+            for (int i = 0; i < kNumPads; ++i)
+                if ((r == 1 && i / kPadsPerBank == proc.bank) || r == 2 || (r == 3 && ! proc.getPad (i).favorite))
+                    which.push_back (i);
+            if (r > 0)
+                proc.deletePads (which);
+            refreshAll();
+        });
+    };
+    addAndMakeVisible (timeLabel);
+    timeLabel.setFont (ui::font (12.0f, true));
+    timeLabel.setColour (juce::Label::textColourId, ui::warn);
+
     addAndMakeVisible (wave);
     addAndMakeVisible (overview);
     wave.onViewChanged = [this] { overview.repaint(); };
@@ -715,6 +927,23 @@ FlayrChopEditor::FlayrChopEditor (FlayrChopProcessor& owner) : AudioProcessorEdi
     {
         auto pb = std::make_unique<ui::PadButton> (proc, i);
         pb->onSelect = [this] { refreshAll(); };
+        pb->padAtScreen = [this] (juce::Point<int> screen) {
+            const auto local = getLocalPoint (nullptr, screen);
+            for (auto& other : padButtons)
+                if (other->getBounds().contains (local))
+                    return other->index();
+            return -1;
+        };
+        pb->onDropOnPad = [this, raw = pb.get()] (int to, bool copy) {
+            const int from = raw->index();
+            auto sel = proc.getSelection();
+            if (std::find (sel.begin(), sel.end(), from) == sel.end())
+                sel = { from };
+            // The grabbed pad lands on the target; the rest keep their places relative to it.
+            proc.movePads (sel, to - (from - sel.front()), copy);
+            refreshAll();
+        };
+        pb->onDragOut = [this] (const juce::MouseEvent& e) { exportDrag (e); };
         addAndMakeVisible (*pb);
         padButtons.push_back (std::move (pb));
     }
@@ -724,18 +953,33 @@ FlayrChopEditor::FlayrChopEditor (FlayrChopProcessor& owner) : AudioProcessorEdi
     styleLabel (padTitle, 18.0f, true, ui::text);
     addAndMakeVisible (padInfo);
     styleLabel (padInfo, 12.0f, false, ui::dim);
-    setupKnob (padGain, "GAIN");
+    setupKnob (padGain, "LEVEL");
     setupKnob (padPan, "PAN");
-    setupKnob (padTape, "PITCH");
+    setupKnob (padFilter, "FILTER");
     setupKnob (padAttack, "ATTACK");
     setupKnob (padRelease, "RELEASE");
+    setupKnob (padKey, "KEY SHIFT");
+    setupKnob (padStretch, "STRETCH");
+    padFilter.slider.setRange (-1.0, 1.0, 0.01);
+    padFilter.slider.getProperties().set ("bipolar", true);
+    padFilter.slider.setTooltip ("Left: low-pass. Right: high-pass.");
+    padFilter.slider.onValueChange = [this] { editPad ([this] (Pad& p) { p.filter = (float) padFilter.slider.getValue(); }); };
+    padKey.slider.setRange (-24.0, 24.0, 1.0);
+    padKey.slider.setTextValueSuffix (" st");
+    padKey.slider.getProperties().set ("bipolar", true);
+    padKey.slider.setTooltip ("Change this pad's key, keeping its length (HQ Stretch)");
+    padKey.slider.onValueChange = [this] { editPad ([this] (Pad& p) { p.keyShift = (float) padKey.slider.getValue(); }); };
+    padStretch.slider.setRange (-75.0, 300.0, 1.0);
+    padStretch.slider.setTextValueSuffix (" %");
+    padStretch.slider.getProperties().set ("bipolar", true);
+    padStretch.slider.setTooltip ("Make this pad longer or shorter, keeping its pitch");
+    padStretch.slider.onValueChange = [this] { editPad ([this] (Pad& p) { p.stretch = (float) padStretch.slider.getValue(); }); };
+    for (auto* k : { &padGain, &padPan, &padFilter, &padKey, &padStretch })
+        k->slider.setDoubleClickReturnValue (true, 0.0);
     padGain.slider.setRange (-24.0, 12.0, 0.1);
     padGain.slider.setTextValueSuffix (" dB");
     padPan.slider.setRange (-1.0, 1.0, 0.01);
     padPan.slider.getProperties().set ("bipolar", true);
-    padTape.slider.setRange (-24.0, 24.0, 0.01);
-    padTape.slider.setTextValueSuffix (" st");
-    padTape.slider.getProperties().set ("bipolar", true);
     padAttack.slider.setRange (0.0, 2000.0, 0.1);
     padAttack.slider.setSkewFactorFromMidPoint (60.0);
     padAttack.slider.setTextValueSuffix (" ms");
@@ -744,10 +988,8 @@ FlayrChopEditor::FlayrChopEditor (FlayrChopProcessor& owner) : AudioProcessorEdi
     padRelease.slider.setTextValueSuffix (" ms");
     padGain.slider.onValueChange = [this] { editPad ([this] (Pad& p) { p.gainDb = (float) padGain.slider.getValue(); }); };
     padPan.slider.onValueChange = [this] { editPad ([this] (Pad& p) { p.pan = (float) padPan.slider.getValue(); }); };
-    padTape.slider.onValueChange = [this] { editPad ([this] (Pad& p) { p.tape = (float) padTape.slider.getValue(); }); };
     padAttack.slider.onValueChange = [this] { editPad ([this] (Pad& p) { p.attackMs = (float) padAttack.slider.getValue(); }); };
     padRelease.slider.onValueChange = [this] { editPad ([this] (Pad& p) { p.releaseMs = (float) padRelease.slider.getValue(); }); };
-    padTape.slider.setTooltip ("Tape-style pitch for this pad (changes its speed too)");
 
     addAndMakeVisible (padMode);
     padMode.addItemList ({ "Trigger", "Gate", "Loop" }, 1);
@@ -762,6 +1004,11 @@ FlayrChopEditor::FlayrChopEditor (FlayrChopProcessor& owner) : AudioProcessorEdi
     padReverse.onClick = [this] { editPad ([this] (Pad& p) { p.reverse = padReverse.getToggleState(); }); };
     addAndMakeVisible (padClear);
     padClear.onClick = [this] { editPad ([] (Pad& p) { p = Pad {}; }); };
+    addAndMakeVisible (padFavorite);
+    padFavorite.setClickingTogglesState (true);
+    padFavorite.getProperties().set ("colour", (juce::int64) ui::warn.getARGB());
+    padFavorite.setTooltip ("Favorites are kept when you auto-chop again");
+    padFavorite.onClick = [this] { editPad ([this] (Pad& p) { p.favorite = padFavorite.getToggleState(); }); };
     addAndMakeVisible (dragHint);
     dragHint.setEnabled (false);
     dragHint.setButtonText ("DRAG A PAD OUT TO EXPORT IT");
@@ -806,22 +1053,21 @@ FlayrChopEditor::FlayrChopEditor (FlayrChopProcessor& owner) : AudioProcessorEdi
     styleLabel (chopLabel, 11.0f, true, ui::dim);
     chopLabel.setText ("AUTO-CHOP", juce::dontSendNotification);
     addAndMakeVisible (chopMode);
-    chopMode.addItemList ({ "Transients", "Every beat", "Every 2 beats", "Every bar", "Even" }, 1);
-    chopMode.onChange = [this] { proc.chopModeUI = chopMode.getSelectedId() - 1; };
+    chopMode.addItemList ({ "Find samples", "Every beat", "Every 2 beats", "Every bar", "Even", "Slicer from playhead",
+                            "Random", "Key shift pad" }, 1);
+    chopMode.onChange = [this] { proc.chopModeUI = chopMode.getSelectedId() - 1; resized(); };
+    addChildComponent (chopSpacing);
+    for (auto [name, beats] : std::initializer_list<std::pair<const char*, int>> { { "1/16", 1 }, { "1/8", 2 }, { "1/4 (beat)", 4 },
+                                                                                   { "1/2 bar", 8 }, { "1 bar", 16 }, { "2 bars", 32 }, { "4 bars", 64 } })
+        chopSpacing.addItem (juce::String ("Every ") + name, beats); // ids are in 16th notes
+    chopSpacing.setSelectedId (4, juce::dontSendNotification);
     addAndMakeVisible (chopCount);
     for (int c : { 4, 8, 16, 32, 64 })
         chopCount.addItem (juce::String (c) + " pads", c);
     chopCount.onChange = [this] { proc.chopCountUI = chopCount.getSelectedId(); };
     addAndMakeVisible (chopBtn);
     chopBtn.setTooltip ("Re-chop starting at the current bank");
-    chopBtn.onClick = [this] {
-        const int m = proc.chopModeUI;
-        const auto mode = m == 0 ? analysis::ChopMode::Auto : m == 4 ? analysis::ChopMode::Even : analysis::ChopMode::Beats;
-        const double beats = m == 2 ? 2.0 : m == 3 ? 4.0 : 1.0;
-        const int first = proc.bank * kPadsPerBank;
-        proc.chop (mode, juce::jmin (proc.chopCountUI, kNumPads - first), first, beats);
-        refreshAll();
-    };
+    chopBtn.onClick = [this] { runChop(); };
     addAndMakeVisible (snapBtn);
     snapBtn.setClickingTogglesState (true);
     snapBtn.setTooltip ("Moved cues snap to the nearest transient");
@@ -830,6 +1076,7 @@ FlayrChopEditor::FlayrChopEditor (FlayrChopProcessor& owner) : AudioProcessorEdi
     proc.addChangeListener (this);
     setResizable (true, true);
     setResizeLimits (1000, 700, 2000, 1400);
+    setWantsKeyboardFocus (true); // pads on the computer keyboard, space to play, arrows to nudge
     setSize (1180, 780);
     refreshAll();
     wave.resetView();
@@ -862,9 +1109,15 @@ void FlayrChopEditor::editPad (const std::function<void (Pad&)>& fn)
 {
     if (updatingInspector)
         return;
-    auto p = proc.getPad (proc.selectedPad);
-    fn (p);
-    proc.setPad (proc.selectedPad, p);
+    // Every selected pad gets the same change (multi-edit).
+    for (int i : proc.getSelection())
+    {
+        auto p = proc.getPad (i);
+        if (! p.hasCue() && i != proc.selectedPad)
+            continue;
+        fn (p);
+        proc.setPad (i, p);
+    }
 }
 
 void FlayrChopEditor::setTargetKey (int key)
@@ -883,32 +1136,47 @@ void FlayrChopEditor::refreshPadInspector()
     const juce::ScopedValueSetter<bool> guard (updatingInspector, true);
     const int i = proc.selectedPad;
     const auto p = proc.getPad (i);
-    padTitle.setText ("PAD " + ui::padLabel (i), juce::dontSendNotification);
-    padTitle.setColour (juce::Label::textColourId, p.hasCue() ? ui::padColour (i) : ui::dim);
-    if (p.hasCue())
-        padInfo.setText (ui::timeString (p.cue) + "  " + juce::String (proc.padEnd (i) - p.cue, 2) + " s   note "
-                             + juce::MidiMessage::getMidiNoteName (kFirstPadNote + i, true, true, 3),
-                         juce::dontSendNotification);
+    const auto sel = proc.getSelection();
+    if (sel.size() > 1)
+    {
+        padTitle.setText (juce::String ((int) sel.size()) + " PADS", juce::dontSendNotification);
+        padTitle.setColour (juce::Label::textColourId, ui::text);
+        padInfo.setText ("Changes apply to every selected pad. Showing " + ui::padLabel (i) + ".", juce::dontSendNotification);
+    }
     else
-        padInfo.setText ("Empty. Double-click the waveform to set its cue.", juce::dontSendNotification);
+    {
+        padTitle.setText ("PAD " + ui::padLabel (i), juce::dontSendNotification);
+        padTitle.setColour (juce::Label::textColourId, p.hasCue() ? ui::padColour (i) : ui::dim);
+        if (p.hasCue())
+            padInfo.setText (ui::timeString (p.cue) + "  " + juce::String (proc.padEnd (i) - p.cue, 2) + " s   key "
+                                 + juce::String::charToString ((juce::juce_wchar) ui::kPadKeys[i % kPadsPerBank]).toUpperCase()
+                                 + "   note " + juce::MidiMessage::getMidiNoteName (kFirstPadNote + i, true, true, 3),
+                             juce::dontSendNotification);
+        else
+            padInfo.setText ("Empty. Play the track and hit this pad, or drag on the waveform.", juce::dontSendNotification);
+    }
     padGain.slider.setValue (p.gainDb, juce::dontSendNotification);
     padPan.slider.setValue (p.pan, juce::dontSendNotification);
-    padTape.slider.setValue (p.tape, juce::dontSendNotification);
+    padFilter.slider.setValue (p.filter, juce::dontSendNotification);
     padAttack.slider.setValue (p.attackMs, juce::dontSendNotification);
     padRelease.slider.setValue (p.releaseMs, juce::dontSendNotification);
+    padKey.slider.setValue (p.keyShift, juce::dontSendNotification);
+    padStretch.slider.setValue (p.stretch, juce::dontSendNotification);
     padMode.setSelectedId ((int) p.mode + 1, juce::dontSendNotification);
     padChoke.setSelectedId (p.choke + 1, juce::dontSendNotification);
     padReverse.setToggleState (p.reverse, juce::dontSendNotification);
+    padFavorite.setToggleState (p.favorite, juce::dontSendNotification);
+    padFavorite.setButtonText (juce::String::fromUTF8 (p.favorite ? "\xe2\x98\x85 FAVORITE" : "\xe2\x98\x86 FAVORITE"));
     const auto& names = proc.getStemNames();
-    for (int s = 0; s < kMaxStems; ++s)
+    for (int st = 0; st < kMaxStems; ++st)
     {
-        auto& b = padStems[(size_t) s];
-        b.setVisible (s < names.size());
-        if (s < names.size())
+        auto& b = padStems[(size_t) st];
+        b.setVisible (st < names.size());
+        if (st < names.size())
         {
-            b.setButtonText (names[s].toUpperCase());
-            b.getProperties().set ("colour", (juce::int64) ui::stemColour (names[s], s).getARGB());
-            b.setToggleState ((p.stemMask >> s) & 1u, juce::dontSendNotification);
+            b.setButtonText (names[st].toUpperCase());
+            b.getProperties().set ("colour", (juce::int64) ui::stemColour (names[st], st).getARGB());
+            b.setToggleState ((p.stemMask >> st) & 1u, juce::dontSendNotification);
         }
     }
 }
@@ -1029,6 +1297,22 @@ void FlayrChopEditor::timerCallback()
         r = "no host tempo";
     renderLabel.setText (r, juce::dontSendNotification);
     keyTo.setSelectedId (proc.getTargetKey() + 1, juce::dontSendNotification);
+
+    // Transport readout, and the waveform pages along with the music while zoomed in.
+    const bool playing = proc.isPlaying();
+    playBtn.setButtonText (playing ? "STOP" : "PLAY");
+    playBtn.setToggleState (playing, juce::dontSendNotification);
+    if (const auto* s = proc.getSample())
+    {
+        const double ph = proc.getPlayhead();
+        timeLabel.setText (ui::timeString (ph) + " / " + ui::timeString (s->lengthSec()), juce::dontSendNotification);
+        if (playing && wave.viewLen < s->lengthSec() - 1e-6 && (ph > wave.viewStart + wave.viewLen * 0.92 || ph < wave.viewStart))
+        {
+            wave.viewStart = ph - wave.viewLen * 0.08;
+            wave.clampView();
+            overview.repaint();
+        }
+    }
 }
 
 //==============================================================================
@@ -1168,6 +1452,125 @@ void FlayrChopEditor::tap()
     tapBtn.setButtonText ("TAP " + juce::String ((int) taps.size()));
 }
 
+void FlayrChopEditor::togglePlay()
+{
+    if (! proc.hasSample())
+        return;
+    if (proc.isPlaying())
+        proc.stop();
+    else
+        proc.play();
+}
+
+void FlayrChopEditor::nudgeSelection (int direction, bool big)
+{
+    // Small steps scale with the zoom (about 2 px); shift moves by a 16th note.
+    const double small = juce::jmax (0.0005, wave.viewLen / juce::jmax (1, wave.getWidth()) * 2.0);
+    const double step = big ? 15.0 / juce::jmax (20.0, proc.getSampleBpm()) : small;
+    proc.nudge (proc.getSelection(), direction * step);
+    refreshAll();
+}
+
+void FlayrChopEditor::deleteSelection()
+{
+    proc.deletePads (proc.getSelection());
+    refreshAll();
+}
+
+juce::File FlayrChopEditor::slicesFolder()
+{
+    // A permanent folder: DAWs reference dropped files where they are, so never use a temp folder.
+    return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Flayr Chop").getChildFile ("Slices");
+}
+
+void FlayrChopEditor::exportDrag (const juce::MouseEvent&)
+{
+    juce::StringArray files;
+    for (int i : proc.getSelection())
+        if (proc.getPad (i).hasCue())
+        {
+            const auto f = proc.exportSlice (i, slicesFolder());
+            if (f.existsAsFile())
+                files.add (f.getFullPathName());
+        }
+    if (! files.isEmpty())
+        juce::DragAndDropContainer::performExternalDragDropOfFiles (files, false, this);
+}
+
+void FlayrChopEditor::runChop()
+{
+    const int m = proc.chopModeUI;
+    const int first = proc.bank * kPadsPerBank;
+    const int count = juce::jmin (proc.chopCountUI, kNumPads - first);
+    if (m == 5)
+        proc.slicerFromPlayhead (first, count, chopSpacing.getSelectedId() / 4.0);
+    else if (m == 6)
+        proc.randomCues (first, count);
+    else if (m == 7)
+        proc.keyShiftPad (proc.selectedPad, first);
+    else
+    {
+        const auto mode = m == 0 ? analysis::ChopMode::Auto : m == 4 ? analysis::ChopMode::Even : analysis::ChopMode::Beats;
+        const double beats = m == 2 ? 2.0 : m == 3 ? 4.0 : 1.0;
+        proc.chop (mode, count, first, beats);
+    }
+    refreshAll();
+}
+
+bool FlayrChopEditor::keyPressed (const juce::KeyPress& k)
+{
+    if (k == juce::KeyPress::spaceKey)
+    {
+        togglePlay();
+        return true;
+    }
+    if (k.getKeyCode() == juce::KeyPress::leftKey || k.getKeyCode() == juce::KeyPress::rightKey)
+    {
+        nudgeSelection (k.getKeyCode() == juce::KeyPress::leftKey ? -1 : 1, k.getModifiers().isShiftDown());
+        return true;
+    }
+    if (k == juce::KeyPress::backspaceKey || k == juce::KeyPress::deleteKey)
+    {
+        deleteSelection();
+        return true;
+    }
+    // Pad keys are handled in keyStateChanged (they need key-up too).
+    const auto c = juce::CharacterFunctions::toLowerCase (k.getTextCharacter());
+    for (int i = 0; i < kPadsPerBank; ++i)
+        if (c == (juce::juce_wchar) ui::kPadKeys[i] && ! k.getModifiers().isCommandDown())
+            return true;
+    return false;
+}
+
+bool FlayrChopEditor::keyStateChanged (bool)
+{
+    bool used = false;
+    for (int i = 0; i < kPadsPerBank; ++i)
+    {
+        const bool down = juce::KeyPress::isKeyCurrentlyDown ((int) ui::kPadKeys[i])
+                          || juce::KeyPress::isKeyCurrentlyDown ((int) juce::CharacterFunctions::toUpperCase ((juce::juce_wchar) ui::kPadKeys[i]));
+        if (down == keyHeld[(size_t) i])
+            continue;
+        keyHeld[(size_t) i] = down;
+        used = true;
+        const int pad = proc.bank * kPadsPerBank + i;
+        const bool keysMode = proc.apvts.getRawParameterValue ("keys")->load() > 0.5f;
+        if (down)
+        {
+            if (! keysMode && ! proc.getPad (pad).hasCue())
+            {
+                proc.setCueAtPlayhead (pad); // empty pad: drop a cue at the playhead
+                refreshAll();
+                continue;
+            }
+            proc.select (pad, false);
+            refreshPadInspector();
+        }
+        proc.triggerFromUI (keysMode ? kKeysRootNote + i - 7 : kFirstPadNote + pad, down);
+    }
+    return used;
+}
+
 void FlayrChopEditor::paintOverChildren (juce::Graphics& g)
 {
     if (! fileHover)
@@ -1230,6 +1633,22 @@ void FlayrChopEditor::resized()
     }
     r.removeFromTop (8);
 
+    toolbarArea = r.removeFromTop (28);
+    {
+        auto t = toolbarArea;
+        playBtn.setBounds (t.removeFromLeft (80).reduced (0, 1));
+        t.removeFromLeft (8);
+        timeLabel.setBounds (t.removeFromLeft (140));
+        zoomOutBtn.setBounds (t.removeFromLeft (30).reduced (1, 1));
+        zoomInBtn.setBounds (t.removeFromLeft (30).reduced (1, 1));
+        t.removeFromLeft (14);
+        nudgeLeftBtn.setBounds (t.removeFromLeft (30).reduced (1, 1));
+        nudgeRightBtn.setBounds (t.removeFromLeft (30).reduced (1, 1));
+        clearAllBtn.setBounds (t.removeFromRight (96).reduced (1, 1));
+        deleteBtn.setBounds (t.removeFromRight (80).reduced (1, 1));
+        selectAllBtn.setBounds (t.removeFromRight (100).reduced (1, 1));
+    }
+    r.removeFromTop (6);
     auto waveArea = r.removeFromTop (juce::jmax (150, r.getHeight() - 520));
     wave.setBounds (waveArea);
     r.removeFromTop (4);
@@ -1268,11 +1687,12 @@ void FlayrChopEditor::resized()
         auto top = a.removeFromTop (26);
         padTitle.setBounds (top.removeFromLeft (100));
         padClear.setBounds (top.removeFromRight (70).reduced (0, 2));
+        padFavorite.setBounds (top.removeFromRight (110).reduced (4, 2));
         padInfo.setBounds (a.removeFromTop (18));
         a.removeFromTop (6);
         auto knobs = a.removeFromTop (84);
-        const int kw = knobs.getWidth() / 5;
-        for (auto* k : { &padGain, &padPan, &padTape, &padAttack, &padRelease })
+        const int kw = knobs.getWidth() / 7;
+        for (auto* k : { &padGain, &padPan, &padFilter, &padAttack, &padRelease, &padKey, &padStretch })
         {
             auto c = knobs.removeFromLeft (kw);
             k->label.setBounds (c.removeFromTop (14));
@@ -1315,7 +1735,12 @@ void FlayrChopEditor::resized()
         chopLabel.setBounds (g.removeFromTop (16));
         auto c1 = g.removeFromTop (28);
         chopMode.setBounds (c1.removeFromLeft (c1.getWidth() * 3 / 5).reduced (2, 2));
+        // The slicer's spacing takes the pad-count slot (it always fills the bank).
+        const bool slicer = proc.chopModeUI == 5;
+        chopSpacing.setVisible (slicer);
+        chopCount.setVisible (! slicer && proc.chopModeUI != 7);
         chopCount.setBounds (c1.reduced (2, 2));
+        chopSpacing.setBounds (c1.reduced (2, 2));
         auto c2 = g.removeFromTop (30);
         snapBtn.setBounds (c2.removeFromLeft (c2.getWidth() / 2).reduced (2, 3));
         chopBtn.setBounds (c2.reduced (2, 3));
@@ -1346,20 +1771,51 @@ void FlayrChopEditor::layoutStems (juce::Rectangle<int> area)
 }
 
 //==============================================================================
+// Drops can carry several items (some hosts add companion files); the first audio file wins.
+static juce::File firstAudioFile (const juce::StringArray& items)
+{
+    for (auto item : items)
+    {
+        item = item.trim().unquoted();
+        if (item.startsWithIgnoreCase ("file://"))
+            item = juce::URL (item).getLocalFile().getFullPathName();
+        const juce::File f (item);
+        if (juce::File::isAbsolutePath (item) && f.existsAsFile() && chop::isAudioFile (f))
+            return f;
+    }
+    return {};
+}
+
 bool FlayrChopEditor::isInterestedInFileDrag (const juce::StringArray& files)
 {
-    return files.size() == 1 && chop::isAudioFile (juce::File (files[0]));
+    return firstAudioFile (files) != juce::File();
 }
 
 void FlayrChopEditor::filesDropped (const juce::StringArray& files, int, int)
 {
     fileHover = false;
-    if (! files.isEmpty())
-    {
-        wave.viewLen = 0.0;
-        proc.loadFile (juce::File (files[0]));
-    }
+    loadDropped (firstAudioFile (files));
     repaint();
+}
+
+bool FlayrChopEditor::isInterestedInTextDrag (const juce::String& text)
+{
+    return firstAudioFile (juce::StringArray::fromLines (text)) != juce::File();
+}
+
+void FlayrChopEditor::textDropped (const juce::String& text, int, int)
+{
+    fileHover = false;
+    loadDropped (firstAudioFile (juce::StringArray::fromLines (text)));
+    repaint();
+}
+
+void FlayrChopEditor::loadDropped (const juce::File& f)
+{
+    if (! f.existsAsFile())
+        return;
+    wave.viewLen = 0.0;
+    proc.loadFile (f);
 }
 
 void FlayrChopEditor::choosFile()

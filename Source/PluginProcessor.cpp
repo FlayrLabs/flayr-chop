@@ -3,6 +3,7 @@
 #include "stems/Stems.h"
 
 #include <juce_cryptography/juce_cryptography.h>
+#include <set>
 
 using namespace chop;
 
@@ -62,7 +63,9 @@ Pad sanitise (Pad p, double lengthSec)
         p.end = -1.0;
     p.gainDb = clampF (p.gainDb, -24.0f, 12.0f, 0.0f);
     p.pan = clampF (p.pan, -1.0f, 1.0f, 0.0f);
-    p.tape = clampF (p.tape, -24.0f, 24.0f, 0.0f);
+    p.keyShift = clampF (p.keyShift, -24.0f, 24.0f, 0.0f);
+    p.stretch = clampF (p.stretch, -75.0f, 300.0f, 0.0f);
+    p.filter = clampF (p.filter, -1.0f, 1.0f, 0.0f);
     p.attackMs = clampF (p.attackMs, 0.0f, 2000.0f, 1.0f);
     p.releaseMs = clampF (p.releaseMs, 1.0f, 4000.0f, 40.0f);
     p.mode = (PadMode) juce::jlimit (0, 2, (int) p.mode);
@@ -217,7 +220,17 @@ void FlayrChopProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
     c.rendered = rendered.get();
     c.pads = padTable.get();
     c.keys = keysRendered.get();
+    c.padRenders = padRendered.get();
     c.g = readGlobals();
+
+    // Transport commands from the editor.
+    if (const int cmd = transportCmd.exchange (0))
+    {
+        if (cmd == 1)
+            sampler.startPreview (transportFrom.load(), c);
+        else
+            sampler.stopPreview();
+    }
 
     // Notes from the editor play at the start of the block.
     {
@@ -288,6 +301,18 @@ void FlayrChopProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
                 if (late > 0.03 * getSampleRate())
                     delay = (int64_t) std::llround ((prev + grid - now) / beatsPerSample);
             }
+            // An empty pad drops a cue at the playhead instead of playing (pads mode only).
+            const int padHit = note - kFirstPadNote;
+            if (! c.g.keysMode && c.pads != nullptr && padHit >= 0 && padHit < kNumPads && ! c.pads->pads[(size_t) padHit].hasCue())
+            {
+                const float cueAt = sampler.isPreviewing() ? (float) sampler.previewSourceSec() : (float) idlePlayhead.load();
+                const auto scope = cueFifo.write (1);
+                if (scope.blockSize1 > 0)
+                    cueHits[(size_t) scope.startIndex1] = { padHit, cueAt };
+                else if (scope.blockSize2 > 0)
+                    cueHits[(size_t) scope.startIndex2] = { padHit, cueAt };
+                continue;
+            }
             if (delay <= 0)
                 sampler.noteOn (note, msg.getFloatVelocity(), c);
             else
@@ -333,6 +358,8 @@ void FlayrChopProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
     const uint64_t keysOldest = std::min (c.keys != nullptr ? c.keys->gen : UINT64_MAX, sampler.oldestKeysInUse());
     keysRendered.setOldestInUse (keysOldest == UINT64_MAX ? 0 : keysOldest);
     padTable.setOldestInUse (c.pads != nullptr ? c.pads->gen : 0);
+    const uint64_t padsOldest = std::min (c.padRenders != nullptr ? c.padRenders->gen : UINT64_MAX, sampler.oldestPadRendersInUse());
+    padRendered.setOldestInUse (padsOldest == UINT64_MAX ? 0 : padsOldest);
 
     midi.clear();
 }
@@ -412,11 +439,15 @@ void FlayrChopProcessor::chop (analysis::ChopMode mode, int count, int firstPad,
     a.firstBeatSec = sampleFirstBeat;
     const auto mono = monoMix (*sample->original);
     const auto cues = analysis::chop (a, mono.data(), (int) mono.size(), sample->fileRate, count, mode, beatsPerCue);
+    // Favorites keep their cue; the rest are filled in order with cues not already taken.
+    size_t next = 0;
     for (int i = 0; i < count; ++i)
     {
         auto& p = pads[(size_t) (firstPad + i)];
+        if (p.favorite)
+            continue;
         p = Pad {};
-        p.cue = i < (int) cues.size() ? cues[(size_t) i] : -1.0;
+        p.cue = next < cues.size() ? cues[next++] : -1.0;
     }
     publishPads();
 }
@@ -569,7 +600,11 @@ void FlayrChopProcessor::applyLoaded (std::shared_ptr<LoadedSample> loaded, bool
                 p.end = t.getProperty ("end", -1.0);
                 p.gainDb = t.getProperty ("gain", 0.0f);
                 p.pan = t.getProperty ("pan", 0.0f);
-                p.tape = t.getProperty ("tape", 0.0f);
+                // 1.0/1.1 had tape-style "tape" pitch; it becomes the (time-kept) key shift.
+                p.keyShift = t.getProperty ("keyShift", t.getProperty ("tape", 0.0f));
+                p.stretch = t.getProperty ("stretch", 0.0f);
+                p.filter = t.getProperty ("filter", 0.0f);
+                p.favorite = t.getProperty ("favorite", false);
                 p.attackMs = t.getProperty ("attack", 1.0f);
                 p.releaseMs = t.getProperty ("release", 40.0f);
                 p.mode = (PadMode) (int) t.getProperty ("mode", 0);
@@ -821,9 +856,33 @@ void FlayrChopProcessor::timerCallback()
         });
     }
 
+    drainCueHits();
+
     if (source != nullptr)
     {
         renderer.request (currentRenderSettings());
+
+        // Pads with their own key shift / stretch get their own renders.
+        std::vector<PadJob> jobs;
+        const auto stemGains = readGlobals().stemGain;
+        const bool formant = apvts.getRawParameterValue ("formant")->load() > 0.5f;
+        for (int i = 0; i < kNumPads; ++i)
+        {
+            const auto& p = pads[(size_t) i];
+            if (! p.hasCue() || ! p.needsRender())
+                continue;
+            PadJob j;
+            j.pad = i;
+            j.startSec = p.cue;
+            j.endSec = padEnd (i);
+            j.keyShift = p.keyShift;
+            j.stretch = p.stretch;
+            j.mask = p.stemMask;
+            j.stemGain = stemGains;
+            j.formant = formant;
+            jobs.push_back (j);
+        }
+        renderer.requestPads (jobs);
         keysPadAudio = selectedPad;
         if (apvts.getRawParameterValue ("keys")->load() > 0.5f && pads[(size_t) selectedPad].hasCue())
         {
@@ -840,7 +899,277 @@ void FlayrChopProcessor::timerCallback()
 
     rendered.collect();
     keysRendered.collect();
+    padRendered.collect();
     padTable.collect();
+}
+
+//==============================================================================
+void FlayrChopProcessor::play()
+{
+    transportFrom = getPlayhead();
+    transportCmd = 1;
+}
+
+void FlayrChopProcessor::stop()
+{
+    // Stopping leaves the playhead where the music was, like a DJ deck.
+    if (sampler.isPreviewing())
+        setPlayhead (sampler.previewSourceSec());
+    transportCmd = 2;
+}
+
+double FlayrChopProcessor::getPlayhead() const
+{
+    return sampler.isPreviewing() ? (double) sampler.previewView.sourceSec.load() : playheadSec;
+}
+
+void FlayrChopProcessor::setPlayhead (double seconds)
+{
+    playheadSec = juce::jlimit (0.0, sample ? sample->lengthSec() : 0.0, seconds);
+    idlePlayhead = playheadSec;
+    if (sampler.isPreviewing())
+    {
+        transportFrom = playheadSec;
+        transportCmd = 1; // jump
+    }
+}
+
+// Where a live tap really meant: people hit a little late, so look back for the transient.
+static double liveCueTime (const analysis::Result& a, double t)
+{
+    double best = t, bestScore = 0.0;
+    for (size_t i = 0; i < a.onsetsSec.size(); ++i)
+    {
+        const double d = a.onsetsSec[i] - t;
+        if (d < -0.12 || d > 0.03)
+            continue;
+        const double score = (i < a.onsetStrength.size() ? a.onsetStrength[i] : 1.0) * (1.0 - std::abs (d + 0.04) / 0.16);
+        if (score > bestScore)
+        {
+            bestScore = score;
+            best = a.onsetsSec[i];
+        }
+    }
+    return best;
+}
+
+void FlayrChopProcessor::setCueAtPlayhead (int pad)
+{
+    if (sample == nullptr || ! juce::isPositiveAndBelow (pad, kNumPads))
+        return;
+    double t = getPlayhead();
+    if (snapUI && sampler.isPreviewing())
+        t = liveCueTime (sample->analysis, t);
+    auto p = pads[(size_t) pad];
+    const bool wasEmpty = ! p.hasCue();
+    p.cue = juce::jlimit (0.0, sample->lengthSec() - 0.01, t);
+    p.end = -1.0;
+    if (wasEmpty)
+    {
+        const auto keep = p;
+        p = Pad {};
+        p.cue = keep.cue;
+    }
+    setPad (pad, p);
+    selection.reset();
+    selection.set ((size_t) pad);
+    selectedPad = pad;
+}
+
+void FlayrChopProcessor::drainCueHits()
+{
+    const auto scope = cueFifo.read (cueFifo.getNumReady());
+    auto apply = [this] (const std::pair<int, float>& hit) {
+        if (sample == nullptr || pads[(size_t) hit.first].hasCue())
+            return;
+        double t = hit.second;
+        if (snapUI && sampler.isPreviewing())
+            t = liveCueTime (sample->analysis, t);
+        Pad p;
+        p.cue = juce::jlimit (0.0, sample->lengthSec() - 0.01, t);
+        setPad (hit.first, p);
+        selection.reset();
+        selection.set ((size_t) hit.first);
+        selectedPad = hit.first;
+    };
+    for (int i = 0; i < scope.blockSize1; ++i)
+        apply (cueHits[(size_t) (scope.startIndex1 + i)]);
+    for (int i = 0; i < scope.blockSize2; ++i)
+        apply (cueHits[(size_t) (scope.startIndex2 + i)]);
+}
+
+void FlayrChopProcessor::nudge (const std::vector<int>& which, double seconds)
+{
+    if (sample == nullptr)
+        return;
+    for (int i : which)
+    {
+        auto& p = pads[(size_t) i];
+        if (! p.hasCue())
+            continue;
+        p.cue = juce::jlimit (0.0, sample->lengthSec() - 0.01, p.cue + seconds);
+        if (p.end >= 0.0 && p.end <= p.cue + 0.005)
+            p.end = -1.0;
+    }
+    publishPads();
+}
+
+void FlayrChopProcessor::setEnd (int pad, double seconds)
+{
+    if (sample == nullptr || ! juce::isPositiveAndBelow (pad, kNumPads) || ! pads[(size_t) pad].hasCue())
+        return;
+    auto p = pads[(size_t) pad];
+    // Dragging the end handle onto (or before) the start removes the explicit end.
+    p.end = seconds > p.cue + 0.005 ? juce::jmin (seconds, sample->lengthSec()) : -1.0;
+    setPad (pad, p);
+}
+
+void FlayrChopProcessor::deletePads (const std::vector<int>& which)
+{
+    for (int i : which)
+        if (juce::isPositiveAndBelow (i, kNumPads))
+            pads[(size_t) i] = Pad {};
+    publishPads();
+}
+
+void FlayrChopProcessor::movePads (const std::vector<int>& from, int toFirst, bool copy)
+{
+    if (from.empty())
+        return;
+    const int base = from.front();
+    std::vector<std::pair<int, Pad>> moves;
+    for (int f : from)
+    {
+        const int to = toFirst + (f - base);
+        if (! juce::isPositiveAndBelow (to, kNumPads))
+            return; // would fall off the end: refuse rather than drop pads
+        moves.push_back ({ to, pads[(size_t) f] });
+    }
+    if (! copy)
+        for (int f : from)
+            pads[(size_t) f] = Pad {};
+    selection.reset();
+    for (const auto& [to, p] : moves)
+    {
+        pads[(size_t) to] = p;
+        selection.set ((size_t) to);
+    }
+    selectedPad = moves.front().first;
+    publishPads();
+}
+
+int FlayrChopProcessor::firstEmptyPad (int bankHint) const
+{
+    for (int k = 0; k < kNumBanks; ++k)
+    {
+        const int b = (bankHint + k) % kNumBanks;
+        for (int i = b * kPadsPerBank; i < (b + 1) * kPadsPerBank; ++i)
+            if (! pads[(size_t) i].hasCue())
+                return i;
+    }
+    return -1;
+}
+
+std::vector<int> FlayrChopProcessor::getSelection() const
+{
+    std::vector<int> v;
+    for (int i = 0; i < kNumPads; ++i)
+        if (selection.test ((size_t) i))
+            v.push_back (i);
+    if (v.empty())
+        v.push_back (selectedPad);
+    return v;
+}
+
+void FlayrChopProcessor::select (int pad, bool additive)
+{
+    if (! juce::isPositiveAndBelow (pad, kNumPads))
+        return;
+    if (additive)
+    {
+        if (selection.none())
+            selection.set ((size_t) selectedPad);
+        selection.flip ((size_t) pad);
+        if (selection.none())
+            selection.set ((size_t) pad);
+    }
+    else
+    {
+        selection.reset();
+        selection.set ((size_t) pad);
+    }
+    selectedPad = pad;
+    keysPadAudio = selectedPad;
+    sendChangeMessage();
+}
+
+void FlayrChopProcessor::selectAll (int bankIndex)
+{
+    selection.reset();
+    for (int i = bankIndex * kPadsPerBank; i < (bankIndex + 1) * kPadsPerBank; ++i)
+        if (pads[(size_t) i].hasCue())
+            selection.set ((size_t) i);
+    sendChangeMessage();
+}
+
+void FlayrChopProcessor::slicerFromPlayhead (int firstPad, int count, double beatsApart)
+{
+    if (sample == nullptr || sampleBpm <= 0.0)
+        return;
+    const double step = beatsApart * 60.0 / sampleBpm;
+    double t = getPlayhead();
+    for (int i = firstPad; i < juce::jmin (kNumPads, firstPad + count); ++i)
+    {
+        if (pads[(size_t) i].favorite)
+            continue;
+        Pad p;
+        p.cue = t < sample->lengthSec() - 0.01 ? t : -1.0;
+        pads[(size_t) i] = p;
+        t += step;
+    }
+    publishPads();
+}
+
+void FlayrChopProcessor::randomCues (int firstPad, int count)
+{
+    if (sample == nullptr)
+        return;
+    // Random, but on the beat grid like a producer would pick (whole beats, never the same twice).
+    const double beat = 60.0 / juce::jmax (20.0, sampleBpm);
+    const int beats = juce::jmax (1, (int) ((sample->lengthSec() - sampleFirstBeat) / beat) - 1);
+    juce::Random rng;
+    std::set<int> used;
+    for (int i = firstPad; i < juce::jmin (kNumPads, firstPad + count); ++i)
+    {
+        if (pads[(size_t) i].favorite)
+            continue;
+        int b = rng.nextInt (beats);
+        for (int tries = 0; used.count (b) != 0 && tries < 50; ++tries)
+            b = rng.nextInt (beats);
+        used.insert (b);
+        Pad p;
+        p.cue = juce::jmax (0.0, sampleFirstBeat + b * beat);
+        pads[(size_t) i] = p;
+    }
+    publishPads();
+}
+
+void FlayrChopProcessor::keyShiftPad (int sourcePad, int firstPad)
+{
+    const auto src = pads[(size_t) juce::jlimit (0, kNumPads - 1, sourcePad)];
+    if (! src.hasCue())
+        return;
+    const double end = padEnd (sourcePad);
+    for (int i = 0; i < kPadsPerBank && firstPad + i < kNumPads; ++i)
+    {
+        auto& p = pads[(size_t) (firstPad + i)];
+        if (p.favorite && firstPad + i != sourcePad)
+            continue;
+        p = src;
+        p.end = end; // every copy plays the same slice
+        p.keyShift = src.keyShift + (float) (i - 7); // pad 8 is the original
+    }
+    publishPads();
 }
 
 //==============================================================================
@@ -940,7 +1269,10 @@ void FlayrChopProcessor::getStateInformation (juce::MemoryBlock& destData)
         t.setProperty ("end", p.end, nullptr);
         t.setProperty ("gain", p.gainDb, nullptr);
         t.setProperty ("pan", p.pan, nullptr);
-        t.setProperty ("tape", p.tape, nullptr);
+        t.setProperty ("keyShift", p.keyShift, nullptr);
+        t.setProperty ("stretch", p.stretch, nullptr);
+        t.setProperty ("filter", p.filter, nullptr);
+        t.setProperty ("favorite", p.favorite, nullptr);
         t.setProperty ("attack", p.attackMs, nullptr);
         t.setProperty ("release", p.releaseMs, nullptr);
         t.setProperty ("mode", (int) p.mode, nullptr);

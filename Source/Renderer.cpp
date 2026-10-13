@@ -177,8 +177,8 @@ bool stretchBufferChunked (const Stereo& in, Stereo& out, int outLength, double 
 }
 
 //==============================================================================
-Renderer::Renderer (Published<Rendered>& r, Published<KeysRender>& k)
-    : renderedOut (r), keysOut (k), worker ([this] { run(); })
+Renderer::Renderer (Published<Rendered>& r, Published<KeysRender>& k, Published<PadRenders>& pr)
+    : renderedOut (r), keysOut (k), padsOut (pr), worker ([this] { run(); })
 {
 }
 
@@ -229,6 +229,22 @@ void Renderer::requestKeys (const KeysSettings& k)
     cv.notify_all();
 }
 
+void Renderer::requestPads (const std::vector<PadJob>& jobs)
+{
+    {
+        std::lock_guard<std::mutex> lock (mutex);
+        bool same = jobs.size() == wantedPads.size();
+        for (size_t i = 0; same && i < jobs.size(); ++i)
+            same = jobs[i].sameAs (wantedPads[i]);
+        if (same)
+            return;
+        wantedPads = jobs;
+        padsDirty = true;
+    }
+    busy = true;
+    cv.notify_all();
+}
+
 void Renderer::run()
 {
     for (;;)
@@ -238,7 +254,7 @@ void Renderer::run()
         uint64_t mTicket = 0, kTicket = 0;
         {
             std::unique_lock<std::mutex> lock (mutex);
-            cv.wait (lock, [this] { return quit || pending || pendingKeys; });
+            cv.wait (lock, [this] { return quit || pending || pendingKeys || padsDirty; });
             if (quit)
                 return;
             main = pending;
@@ -251,6 +267,52 @@ void Renderer::run()
                 keysInFlight = pendingKeys;
                 pendingKeys.reset();
                 kTicket = keysTicket;
+            }
+        }
+
+        // Pads come last: one at a time, so a newer main or Keys request can cut in between.
+        if (! main && ! keys)
+        {
+            std::optional<PadJob> job;
+            std::optional<RenderSettings> done;
+            uint64_t startTicket = 0;
+            const auto* cur = renderedOut.get();
+            {
+                std::lock_guard<std::mutex> lock (mutex);
+                done = lastDone;
+                startTicket = mainTicket;
+                if (cur != nullptr && cur->gen != donePadsForGen)
+                {
+                    donePads.fill (std::nullopt); // a new main render invalidates every pad render
+                    donePadsForGen = cur->gen;
+                }
+                for (const auto& j : wantedPads)
+                    if (j.pad >= 0 && j.pad < kNumPads && ! (donePads[(size_t) j.pad] && donePads[(size_t) j.pad]->sameAs (j)))
+                    {
+                        job = j;
+                        break;
+                    }
+                if (! job)
+                    padsDirty = false;
+            }
+            if (job && cur != nullptr && done)
+            {
+                if (renderPad (*job, *cur, *done, startTicket))
+                {
+                    std::lock_guard<std::mutex> lock (mutex);
+                    donePads[(size_t) job->pad] = job;
+                }
+                else
+                {
+                    std::lock_guard<std::mutex> lock (mutex);
+                    if (mainTicket == startTicket)
+                        donePads[(size_t) job->pad] = job; // unrenderable (too short): don't retry forever
+                }
+            }
+            else if (job)
+            {
+                std::lock_guard<std::mutex> lock (mutex);
+                padsDirty = false; // nothing to render against yet; the next main render re-arms it
             }
         }
 
@@ -288,7 +350,9 @@ void Renderer::run()
         std::lock_guard<std::mutex> lock (mutex);
         inFlight.reset();
         keysInFlight.reset();
-        if (! pending && ! pendingKeys)
+        if (main)
+            padsDirty = ! wantedPads.empty(); // pads belong to the main render; redo them on top of it
+        if (! pending && ! pendingKeys && ! padsDirty)
             busy = false;
     }
 }
@@ -436,6 +500,75 @@ bool Renderer::renderKeys (const KeysSettings& k, const Rendered& r, const Rende
     if (! ok || cancelled())
         return false;
     keysOut.publish (std::move (out));
+    return true;
+}
+StereoPtr Renderer::mixSlice (const Source& src, double startSec, double endSec, uint32_t mask,
+                              const std::array<float, kMaxStems>& gains) const
+{
+    const int a = std::clamp ((int) (startSec * src.sampleRate), 0, src.full->size());
+    const int b = std::clamp ((int) (endSec * src.sampleRate), a, src.full->size());
+    auto slice = std::make_shared<Stereo>();
+    slice->resize (b - a);
+    const auto& stems = src.stems;
+    bool useStems = false;
+    for (size_t s = 0; s < stems.size(); ++s)
+        useStems = useStems || std::abs ((((mask >> s) & 1u) ? gains[s] : 0.0f) - 1.0f) > 1e-4f;
+    for (int i = a; i < b; ++i)
+    {
+        float l = 0, r = 0;
+        if (useStems)
+            for (size_t s = 0; s < stems.size(); ++s)
+            {
+                const float w = ((mask >> s) & 1u) ? gains[s] : 0.0f;
+                l += w * stems[s]->l[(size_t) i];
+                r += w * stems[s]->r[(size_t) i];
+            }
+        else
+        {
+            l = src.full->l[(size_t) i];
+            r = src.full->r[(size_t) i];
+        }
+        slice->l[(size_t) (i - a)] = l;
+        slice->r[(size_t) (i - a)] = r;
+    }
+    return slice;
+}
+
+bool Renderer::renderPad (const PadJob& j, const Rendered& r, const RenderSettings& main, uint64_t ticketAtStart)
+{
+    if (main.source == nullptr || main.source->full == nullptr || j.endSec <= j.startSec)
+        return false;
+    auto cancelled = [this, ticketAtStart] { return mainTicket.load() != ticketAtStart; };
+    const auto& src = *main.source;
+    const auto slice = mixSlice (src, j.startSec, j.endSec, j.mask, j.stemGain);
+    if (slice->size() < 16)
+        return false;
+
+    // In HQ Stretch the pad also carries the song's key and tempo; in tape mode the voice adds them.
+    const double lengthFactor = 1.0 + j.stretch / 100.0;
+    const double base = r.stretched ? slice->size() / main.speed : (double) slice->size();
+    const int outLength = std::max (16, (int) std::llround (base * lengthFactor));
+    const float semis = (r.stretched ? main.semis : 0.0f) + j.keyShift;
+    auto buf = std::make_shared<Stereo>();
+    if (! stretchBuffer (*slice, *buf, outLength, src.sampleRate, semis, main.formant, cancelled))
+        return false;
+
+    PadRender pr;
+    pr.buf = buf;
+    pr.renderedGen = r.gen;
+    pr.cue = j.startSec;
+    pr.end = j.endSec;
+    pr.keyShift = j.keyShift;
+    pr.stretch = j.stretch;
+    pr.mask = j.mask;
+    pr.startPos = j.startSec * r.positionsPerSecond;
+    pr.endPos = j.endSec * r.positionsPerSecond;
+
+    auto next = std::make_unique<PadRenders>();
+    if (const auto* cur = padsOut.get())
+        next->pads = cur->pads;
+    next->pads[(size_t) j.pad] = pr;
+    padsOut.publish (std::move (next));
     return true;
 }
 } // namespace chop

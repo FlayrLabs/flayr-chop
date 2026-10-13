@@ -49,6 +49,8 @@ public:
     void mouseMagnify (const juce::MouseEvent&, float scale) override;
 
     void resetView();
+    void zoomAround (double t, double factor);
+    void clampView();
     double viewStart = 0.0, viewLen = 0.0;
     std::function<void()> onViewChanged, onSelectionChanged;
 
@@ -56,12 +58,12 @@ private:
     double timeAt (float x) const;
     float xAt (double t) const;
     int flagAt (juce::Point<float>) const;
-    void zoomAround (double t, double factor);
-    void clampView();
+    int endHandleAt (juce::Point<float>) const;
 
     FlayrChopProcessor& proc;
-    int draggingPad = -1;
-    double dragTime = 0.0, dragViewStart = 0.0;
+    int draggingPad = -1, draggingEnd = -1;
+    bool creating = false, movedSinceDown = false;
+    double dragTime = 0.0, dragViewStart = 0.0, downTime = 0.0;
     int hoverFlag = -1;
 };
 
@@ -89,18 +91,23 @@ public:
     void mouseUp (const juce::MouseEvent&) override;
     int index() const { return proc.bank * chop::kPadsPerBank + slot; }
     std::function<void()> onSelect;
+    std::function<void (const juce::MouseEvent&)> onDragOut;            // left the pad grid: export to the DAW
+    std::function<void (int toPad, bool copy)> onDropOnPad;              // released over another pad
+    std::function<int (juce::Point<int> screenPos)> padAtScreen;         // -1 outside the grid
     float level = 0.0f;
+    int dropHover = -1;
 
 private:
     FlayrChopProcessor& proc;
     const int slot;
     int playingNote = -1;
-    bool dragging = false;
+    bool dragging = false, keepSelection = false;
 };
 } // namespace ui
 
 class FlayrChopEditor : public juce::AudioProcessorEditor,
                         public juce::FileDragAndDropTarget,
+                        public juce::TextDragAndDropTarget,
                         private juce::Timer,
                         private juce::ChangeListener
 {
@@ -117,6 +124,14 @@ public:
     void fileDragEnter (const juce::StringArray&, int, int) override { fileHover = true; repaint(); }
     void fileDragExit (const juce::StringArray&) override { fileHover = false; repaint(); }
     void filesDropped (const juce::StringArray&, int, int) override;
+    // Some hosts and browsers hand over paths or file:// URLs as text instead of files.
+    bool isInterestedInTextDrag (const juce::String&) override;
+    void textDropped (const juce::String&, int, int) override;
+    void textDragEnter (const juce::String&, int, int) override { fileHover = true; repaint(); }
+    void textDragExit (const juce::String&) override { fileHover = false; repaint(); }
+
+    bool keyPressed (const juce::KeyPress&) override;
+    bool keyStateChanged (bool isKeyDown) override;
 
     void refreshAll(); // pulls everything from the processor (also used by the snapshot tool)
 
@@ -149,6 +164,13 @@ private:
     void showBpmMenu();
     void showKeyMenu();
     void tap();
+    void togglePlay();
+    void nudgeSelection (int direction, bool big);
+    void deleteSelection();
+    void exportDrag (const juce::MouseEvent&);
+    void runChop();
+    static juce::File slicesFolder();
+    void loadDropped (const juce::File&);
     void layoutStems (juce::Rectangle<int>);
 
     FlayrChopProcessor& proc;
@@ -172,6 +194,12 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> pitchTimeAtt, formantAtt;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> manualTempoAtt;
 
+    juce::TextButton playBtn { "PLAY" }, zoomOutBtn { "-" }, zoomInBtn { "+" }, nudgeLeftBtn { "<" }, nudgeRightBtn { ">" },
+        selectAllBtn { "SELECT ALL" }, deleteBtn { "DELETE" }, clearAllBtn { "CLEAR ALL" };
+    juce::Label timeLabel;
+    juce::Rectangle<int> toolbarArea;
+    std::array<bool, 16> keyHeld {};
+
     ui::Waveform wave { proc };
     ui::Overview overview { proc, wave };
 
@@ -186,15 +214,15 @@ private:
 
     // Pad inspector
     juce::Label padTitle, padInfo;
-    Knob padGain, padPan, padTape, padAttack, padRelease;
+    Knob padGain, padPan, padFilter, padAttack, padRelease, padKey, padStretch;
     juce::ComboBox padMode, padChoke;
-    juce::TextButton padReverse { "REVERSE" }, padClear { "CLEAR" }, dragHint { "DRAG SLICE" };
+    juce::TextButton padReverse { "REVERSE" }, padClear { "CLEAR" }, padFavorite { "FAVORITE" }, dragHint { "DRAG SLICE" };
     std::array<juce::TextButton, chop::kMaxStems> padStems;
 
     // Global
     Knob volume, filter, velocity;
     juce::TextButton monoBtn { "MONO" }, keysBtn { "KEYS" }, snapBtn { "SNAP" }, chopBtn { "CHOP" };
-    juce::ComboBox quantize, chopMode, chopCount;
+    juce::ComboBox quantize, chopMode, chopCount, chopSpacing;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> monoAtt, keysAtt;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> quantizeAtt;
     juce::Label quantizeLabel, chopLabel;

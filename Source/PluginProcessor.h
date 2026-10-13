@@ -2,6 +2,8 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <bitset>
+
 #include "Renderer.h"
 #include "SampleLoader.h"
 
@@ -53,6 +55,32 @@ public:
     void chop (chop::analysis::ChopMode, int count, int firstPad, double beatsPerCue = 1.0);
     void clearPads (int firstPad, int count);
 
+    // Auto-chop modes beyond chop(): favorites are always left alone.
+    void slicerFromPlayhead (int firstPad, int count, double beatsApart);
+    void randomCues (int firstPad, int count);
+    void keyShiftPad (int sourcePad, int firstPad); // copies one pad across a bank, -7..+8 semitones
+
+    // Transport: plays the whole track from the playhead (independent of the DAW's transport).
+    void play();
+    void stop();
+    bool isPlaying() const { return sampler.isPreviewing(); }
+    double getPlayhead() const; // seconds into the source
+    void setPlayhead (double seconds);
+
+    // Cues. An empty pad hit (click, key or MIDI) drops a cue at the playhead.
+    void setCueAtPlayhead (int pad);
+    void nudge (const std::vector<int>& pads, double seconds);
+    void setEnd (int pad, double seconds);
+    void deletePads (const std::vector<int>& pads);
+    void movePads (const std::vector<int>& from, int toFirst, bool copy); // keeps their layout
+    int firstEmptyPad (int bankHint) const;
+
+    // Selection (message thread). selectedPad is the primary one the inspector shows.
+    std::vector<int> getSelection() const;
+    bool isSelected (int pad) const { return selection.test ((size_t) pad); }
+    void select (int pad, bool additive);
+    void selectAll (int bank);
+
     bool hasSample() const { return sample != nullptr; }
     const chop::LoadedSample* getSample() const { return sample.get(); }
     juce::String getFileName() const { return sample ? sample->file.getFileNameWithoutExtension() : missingFile.getFileNameWithoutExtension(); }
@@ -61,6 +89,7 @@ public:
     Busy getBusy() const { return busy; }
     float getProgress() const { return progress.load(); }
     juce::String getStatus() const { return status; }
+    void setStatus (const juce::String& s) { status = s; sendChangeMessage(); }
     bool isRendering() const { return renderer.busy.load(); }
     bool isDraft() const { const auto* r = rendered.get(); return r != nullptr && r->draft; }
 
@@ -122,8 +151,19 @@ private:
     // Audio data published to the audio thread.
     chop::Published<chop::Rendered> rendered;
     chop::Published<chop::KeysRender> keysRendered;
+    chop::Published<chop::PadRenders> padRendered;
     chop::Published<chop::PadTable> padTable;
-    chop::Renderer renderer { rendered, keysRendered };
+    chop::Renderer renderer { rendered, keysRendered, padRendered };
+    std::bitset<chop::kNumPads> selection;
+    double playheadSec = 0.0;
+
+    // Transport commands into the audio thread, and cue hits coming back from MIDI.
+    std::atomic<int> transportCmd { 0 };   // 1 play, 2 stop
+    std::atomic<double> transportFrom { 0.0 };
+    std::atomic<double> idlePlayhead { 0.0 }; // where play starts when stopped
+    juce::AbstractFifo cueFifo { 64 };
+    std::array<std::pair<int, float>, 64> cueHits {};
+    void drainCueHits();
 
     // Message-thread model.
     std::shared_ptr<chop::LoadedSample> sample;
