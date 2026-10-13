@@ -24,7 +24,7 @@ jobs:
           - { name: Windows (VST3), os: windows-2022 }
           - { name: Linux (VST3 + LV2), os: ubuntu-22.04 }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Linux dependencies
         if: runner.os == 'Linux'
