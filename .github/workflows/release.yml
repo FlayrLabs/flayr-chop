@@ -36,7 +36,7 @@ jobs:
       - uses: actions/attest-build-provenance@v2
         with:
           subject-path: dist/*.exe
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: dist/*.exe
@@ -73,7 +73,7 @@ jobs:
       - uses: actions/attest-build-provenance@v2
         with:
           subject-path: dist/*.tar.gz
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux
           path: dist/*.tar.gz
