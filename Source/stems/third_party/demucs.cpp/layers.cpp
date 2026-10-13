@@ -1,9 +1,5 @@
 #include <algorithm>
 #include <cstring>
-#if defined(__APPLE__) && defined(EIGEN_USE_BLAS)
-#include <vecLib/vDSP.h>
-#include <vecLib/vForce.h>
-#endif
 #include <stdexcept>
 #include <vector>
 #include "layers.hpp"
@@ -14,26 +10,17 @@
 #include <Eigen/Dense>
 #include <unsupported/Eigen/CXX11/Tensor>
 
-// Flayr Chop: numerically stable softmax over a contiguous vector. On
-// Apple platforms (Accelerate already linked for BLAS) vForce's vvexpf is
-// about twice as fast as Eigen's packet exp.
-static inline void softmax_inplace(float *p, int n)
+// Flayr Chop: the unnormalized half of a numerically stable softmax over a
+// contiguous vector: p = exp(p - max(p)); returns sum(p). The caller divides
+// the (much smaller) attention output by the sum instead of the scores.
+// Eigen's fused (x - max).exp() pass measured faster than vDSP + vForce's
+// separate subtract / exp / sum / scale passes.
+static inline float softmax_exp_inplace(float *p, int n)
 {
-#if defined(__APPLE__) && defined(EIGEN_USE_BLAS)
-    float mx = 0.0f, sum = 0.0f;
-    vDSP_maxv(p, 1, &mx, (vDSP_Length)n);
-    const float neg = -mx;
-    vDSP_vsadd(p, 1, &neg, p, 1, (vDSP_Length)n);
-    vvexpf(p, p, &n);
-    vDSP_sve(p, 1, &sum, (vDSP_Length)n);
-    const float inv = 1.0f / sum;
-    vDSP_vsmul(p, 1, &inv, p, 1, (vDSP_Length)n);
-#else
     Eigen::Map<Eigen::ArrayXf> col(p, n);
     const float mx = col.maxCoeff();
     col = (col - mx).exp();
-    col *= 1.0f / col.sum();
-#endif
+    return col.sum();
 }
 
 // Flayr Chop: norms rewritten as cache-friendly passes over the column-major
@@ -251,239 +238,347 @@ Eigen::Tensor3dXf demucscpp::layer_norm(const Eigen::Tensor3dXf &x,
     return y_out;
 }
 
+// Flayr Chop: DConv rewritten for a channel-first (C, L, B) tensor (B = the
+// batch axis: frequency rows on the frequency branch, 1 on the time branch).
+// Upstream works on (B, C, L) and transposes around every convolution. Here
+// every batch element is a contiguous C x L block, the dilated convolutions
+// are one im2col GEMM, and both residual sub-blocks run on a few batch
+// elements at a time so all intermediates stay in cache. Same operations,
+// statistics and quirks as upstream (per-element GroupNorm(1) with the
+// (N - 1) variance, the dilated conv's two trailing zero columns, the crop).
+
+namespace demucscpp
+{
+namespace
+{
+
+struct DConvParams
+{
+    const float *w1, *b1;     // dilated conv (H, C, 3), bias H
+    const float *gn1w, *gn1b; // GroupNorm(1, H)
+    const float *w2, *b2;     // 1x1 conv (2C, H, 1), bias 2C
+    const float *gn2w, *gn2b; // GroupNorm(1, 2C)
+    const float *scale;       // LayerScale (C)
+};
+
+// mean and 1/std of each of nb contiguous blocks of `rows` x `cols` floats,
+// like demucscpp::group_norm: double sums, float mean, (n - 1) divisor
+static void block_stats(const float *x, Eigen::Index rows, Eigen::Index cols,
+                        int nb, float eps, float *mean, float *inv)
+{
+    const double n = (double)rows * cols;
+    for (int b = 0; b < nb; ++b)
+    {
+        const float *p = x + (size_t)b * rows * cols;
+        double sum = 0.0;
+        for (Eigen::Index c = 0; c < cols; ++c)
+            sum += Eigen::Map<const Eigen::ArrayXf>(p + rows * c, rows)
+                       .cast<double>()
+                       .sum();
+        const float m = (float)(sum / n);
+        double ss = 0.0;
+        for (Eigen::Index c = 0; c < cols; ++c)
+            ss += (Eigen::Map<const Eigen::ArrayXf>(p + rows * c, rows) - m)
+                      .square()
+                      .cast<double>()
+                      .sum();
+        mean[b] = m;
+        inv[b] = 1.0f / std::sqrt((float)(ss / (n - 1.0)) + eps);
+    }
+}
+
+// One residual sub-block on nb batch elements.
+//   x: C x L x nb (input and residual), y: C x lout x nb (output)
+// lconv = upstream's allocated conv output length (L + 2 * dil - 2); columns
+// at or past L of the conv output are zero (no bias), then everything is
+// cropped to lout <= lconv; lout >= L.
+static void dconv_block(const DConvParams &p, const float *x, float *y, int C,
+                        int H, int L, int nb, int dil, int lout,
+                        std::vector<float> &col, std::vector<float> &hbuf,
+                        std::vector<float> &zbuf)
+{
+    const Eigen::Index rows = (Eigen::Index)3 * C;
+    const Eigen::Index ncol = (Eigen::Index)L * nb;
+    col.resize((size_t)rows * ncol);
+    hbuf.resize((size_t)H * lout * nb);
+    zbuf.resize((size_t)2 * C * lout * nb);
+
+    // im2col: column (l, b) = [x(:, l - dil, b); x(:, l, b); x(:, l + dil, b)]
+    for (int b = 0; b < nb; ++b)
+        for (int l = 0; l < L; ++l)
+        {
+            float *dst = col.data() + rows * (l + (Eigen::Index)L * b);
+            for (int k = 0; k < 3; ++k)
+            {
+                const int il = l + (k - 1) * dil;
+                if (il >= 0 && il < L)
+                    std::memcpy(dst + k * C,
+                                x + (size_t)C * (il + (size_t)L * b),
+                                sizeof(float) * C);
+                else
+                    std::memset(dst + k * C, 0, sizeof(float) * C);
+            }
+        }
+
+    // h = W1 * col + b1 for l < L, 0 for L <= l < lout
+    Eigen::Map<const Eigen::MatrixXf> w1(p.w1, H, rows);
+    Eigen::Map<const Eigen::VectorXf> b1(p.b1, H);
+    Eigen::Map<Eigen::MatrixXf> h(hbuf.data(), H, (Eigen::Index)lout * nb);
+    if (lout == L)
+    {
+        h.noalias() = w1 * Eigen::Map<const Eigen::MatrixXf>(col.data(), rows, ncol);
+        h.colwise() += b1;
+    }
+    else
+    {
+        for (int b = 0; b < nb; ++b)
+        {
+            auto hb = h.middleCols((Eigen::Index)lout * b, lout);
+            hb.leftCols(L).noalias() =
+                w1 * Eigen::Map<const Eigen::MatrixXf>(
+                         col.data() + rows * (Eigen::Index)L * b, rows, L);
+            hb.leftCols(L).colwise() += b1;
+            hb.rightCols(lout - L).setZero();
+        }
+    }
+
+    // GroupNorm(1, H) + GELU
+    float mean[64], inv[64];
+    for (int b0 = 0; b0 < nb; b0 += 64)
+    {
+        const int bn = std::min(64, nb - b0);
+        block_stats(hbuf.data() + (size_t)H * lout * b0, H, lout, bn, 1e-05f,
+                    mean, inv);
+        for (int bi = 0; bi < bn; ++bi)
+        {
+            Eigen::Map<Eigen::ArrayXXf> hb(
+                hbuf.data() + (size_t)H * lout * (b0 + bi), H, lout);
+            Eigen::Map<const Eigen::ArrayXf> g(p.gn1w, H), be(p.gn1b, H);
+            const float m = mean[bi], iv = inv[bi];
+            for (int l = 0; l < lout; ++l)
+                hb.col(l) = (hb.col(l) - m) * iv * g + be;
+        }
+    }
+    demucscpp::gelu_inplace(hbuf.data(), (Eigen::Index)H * lout * nb);
+
+    // z = W2 * h + b2
+    Eigen::Map<const Eigen::MatrixXf> w2(p.w2, 2 * C, H);
+    Eigen::Map<const Eigen::VectorXf> b2(p.b2, 2 * C);
+    Eigen::Map<Eigen::MatrixXf> z(zbuf.data(), 2 * C, (Eigen::Index)lout * nb);
+    z.noalias() = w2 * h;
+    z.colwise() += b2;
+
+    // GroupNorm(1, 2C), GLU over channels, LayerScale, residual
+    Eigen::Map<const Eigen::ArrayXf> g2(p.gn2w, 2 * C), be2(p.gn2b, 2 * C);
+    Eigen::Map<const Eigen::ArrayXf> sc(p.scale, C);
+    for (int b0 = 0; b0 < nb; b0 += 64)
+    {
+        const int bn = std::min(64, nb - b0);
+        block_stats(zbuf.data() + (size_t)2 * C * lout * b0, 2 * C, lout, bn,
+                    1e-05f, mean, inv);
+        for (int bi = 0; bi < bn; ++bi)
+        {
+            const int b = b0 + bi;
+            const float m = mean[bi], iv = inv[bi];
+            for (int l = 0; l < lout; ++l)
+            {
+                Eigen::Map<Eigen::ArrayXf> zc(
+                    zbuf.data() + (size_t)2 * C * (l + (size_t)lout * b), 2 * C);
+                zc = (zc - m) * iv * g2 + be2;
+                Eigen::Map<Eigen::ArrayXf> out(
+                    y + (size_t)C * (l + (size_t)lout * b), C);
+                out = zc.head(C) / (1.0f + (-zc.tail(C)).exp());
+                if (l < L)
+                    out = Eigen::Map<const Eigen::ArrayXf>(
+                              x + (size_t)C * (l + (size_t)L * b), C) +
+                          sc * out;
+                else
+                    out = sc * out;
+            }
+        }
+    }
+}
+
+// The same sub-block for one long batch element (the time branch, up to
+// 86k columns), in column chunks so nothing large is materialized: the 2C x L
+// activation is recomputed (cheap 1x1 GEMM) for each of GroupNorm's two
+// statistics passes and the output pass, which visit the chunks in the same
+// order as block_stats visits columns, so the statistics are identical.
+static void dconv_block_long(const DConvParams &p, const float *x, float *y,
+                             int C, int H, int L, int dil, int lout,
+                             std::vector<float> &col, std::vector<float> &hbuf,
+                             std::vector<float> &zbuf)
+{
+    const Eigen::Index rows = (Eigen::Index)3 * C;
+    const int chunk = std::max(256, (int)((128 * 1024) / rows));
+    col.resize((size_t)rows * chunk);
+    hbuf.resize((size_t)H * lout);
+    zbuf.resize((size_t)2 * C * chunk);
+
+    Eigen::Map<const Eigen::MatrixXf> w1(p.w1, H, rows);
+    Eigen::Map<const Eigen::VectorXf> b1(p.b1, H);
+    Eigen::Map<Eigen::MatrixXf> h(hbuf.data(), H, lout);
+    for (int l0 = 0; l0 < L; l0 += chunk)
+    {
+        const int n = std::min(chunk, L - l0);
+        for (int l = l0; l < l0 + n; ++l)
+        {
+            float *dst = col.data() + rows * (l - l0);
+            for (int k = 0; k < 3; ++k)
+            {
+                const int il = l + (k - 1) * dil;
+                if (il >= 0 && il < L)
+                    std::memcpy(dst + k * C, x + (size_t)C * il, sizeof(float) * C);
+                else
+                    std::memset(dst + k * C, 0, sizeof(float) * C);
+            }
+        }
+        auto hc = h.middleCols(l0, n);
+        hc.noalias() =
+            w1 * Eigen::Map<const Eigen::MatrixXf>(col.data(), rows, n);
+        hc.colwise() += b1;
+    }
+    if (lout > L)
+        h.rightCols(lout - L).setZero();
+
+    float mean, inv;
+    block_stats(hbuf.data(), H, lout, 1, 1e-05f, &mean, &inv);
+    {
+        Eigen::Map<const Eigen::ArrayXf> g(p.gn1w, H), be(p.gn1b, H);
+        for (int l = 0; l < lout; ++l)
+            h.col(l).array() = (h.col(l).array() - mean) * inv * g + be;
+    }
+    demucscpp::gelu_inplace(hbuf.data(), (Eigen::Index)H * lout);
+
+    Eigen::Map<const Eigen::MatrixXf> w2(p.w2, 2 * C, H);
+    Eigen::Map<const Eigen::VectorXf> b2(p.b2, 2 * C);
+    auto zchunk = [&](int l0, int n) {
+        Eigen::Map<Eigen::MatrixXf> z(zbuf.data(), 2 * C, n);
+        z.noalias() = w2 * h.middleCols(l0, n);
+        z.colwise() += b2;
+        return z;
+    };
+    const double cnt = (double)2 * C * lout;
+    double sum = 0.0;
+    for (int l0 = 0; l0 < lout; l0 += chunk)
+    {
+        const int n = std::min(chunk, lout - l0);
+        auto z = zchunk(l0, n);
+        for (int l = 0; l < n; ++l)
+            sum += z.col(l).cast<double>().sum();
+    }
+    const float m2 = (float)(sum / cnt);
+    double ss = 0.0;
+    for (int l0 = 0; l0 < lout; l0 += chunk)
+    {
+        const int n = std::min(chunk, lout - l0);
+        auto z = zchunk(l0, n);
+        for (int l = 0; l < n; ++l)
+            ss += (z.col(l).array() - m2).square().cast<double>().sum();
+    }
+    const float iv2 = 1.0f / std::sqrt((float)(ss / (cnt - 1.0)) + 1e-05f);
+
+    Eigen::Map<const Eigen::ArrayXf> g2(p.gn2w, 2 * C), be2(p.gn2b, 2 * C);
+    Eigen::Map<const Eigen::ArrayXf> sc(p.scale, C);
+    for (int l0 = 0; l0 < lout; l0 += chunk)
+    {
+        const int n = std::min(chunk, lout - l0);
+        auto z = zchunk(l0, n);
+        for (int j = 0; j < n; ++j)
+        {
+            const int l = l0 + j;
+            auto zc = z.col(j).array();
+            zc = (zc - m2) * iv2 * g2 + be2;
+            Eigen::Map<Eigen::ArrayXf> out(y + (size_t)C * l, C);
+            out = zc.head(C) / (1.0f + (-zc.tail(C)).exp());
+            if (l < L)
+                out = Eigen::Map<const Eigen::ArrayXf>(x + (size_t)C * l, C) +
+                      sc * out;
+            else
+                out = sc * out;
+        }
+    }
+}
+
+} // namespace
+} // namespace demucscpp
+
 void demucscpp::apply_dconv(const struct demucscpp::demucs_model &model,
                             Eigen::Tensor3dXf &y, int freq_idx, int encdec_idx,
                             int layer_idx, int mid_crop)
 {
-    // store another copy of y to sum back later
-    Eigen::Tensor3dXf y_copy = y;
+    const int C = (int)y.dimension(0);
+    const int L = (int)y.dimension(1);
+    const int B = (int)y.dimension(2);
+    const int H = C / 8; // DConv compress = 8
+    if (C != (48 << layer_idx))
+        throw std::runtime_error("apply_dconv: unexpected channel count");
 
-    // now dconv time
-
-    switch (layer_idx)
-    {
-    case 0:
-        y = demucscpp::conv1d<48, 6, 3, 1, 1, 1>(
-            y,
-            model.dconv_layers_0_conv1d_weight[freq_idx][encdec_idx][layer_idx]
-                                              [0],
-            model.dconv_layers_0_conv1d_bias[freq_idx][encdec_idx][layer_idx]
-                                            [0]);
-        break;
-    case 1:
-        y = demucscpp::conv1d<96, 12, 3, 1, 1, 1>(
-            y,
-            model.dconv_layers_0_conv1d_weight[freq_idx][encdec_idx][layer_idx]
-                                              [0],
-            model.dconv_layers_0_conv1d_bias[freq_idx][encdec_idx][layer_idx]
-                                            [0]);
-        break;
-    case 2:
-        y = demucscpp::conv1d<192, 24, 3, 1, 1, 1>(
-            y,
-            model.dconv_layers_0_conv1d_weight[freq_idx][encdec_idx][layer_idx]
-                                              [0],
-            model.dconv_layers_0_conv1d_bias[freq_idx][encdec_idx][layer_idx]
-                                            [0]);
-        break;
-    case 3:
-        y = demucscpp::conv1d<384, 48, 3, 1, 1, 1>(
-            y,
-            model.dconv_layers_0_conv1d_weight[freq_idx][encdec_idx][layer_idx]
-                                              [0],
-            model.dconv_layers_0_conv1d_bias[freq_idx][encdec_idx][layer_idx]
-                                            [0]);
-        break;
+    auto params = [&](int sub) {
+        DConvParams p;
+        p.w1 = model.dconv_layers_0_conv1d_weight[freq_idx][encdec_idx][layer_idx][sub].data();
+        p.b1 = model.dconv_layers_0_conv1d_bias[freq_idx][encdec_idx][layer_idx][sub].data();
+        p.gn1w = model.dconv_layers_1_groupnorm_weight[freq_idx][encdec_idx][layer_idx][sub].data();
+        p.gn1b = model.dconv_layers_1_groupnorm_bias[freq_idx][encdec_idx][layer_idx][sub].data();
+        p.w2 = model.dconv_layers_3_conv1d_weight[freq_idx][encdec_idx][layer_idx][sub].data();
+        p.b2 = model.dconv_layers_3_conv1d_bias[freq_idx][encdec_idx][layer_idx][sub].data();
+        p.gn2w = model.dconv_layers_4_groupnorm_weight[freq_idx][encdec_idx][layer_idx][sub].data();
+        p.gn2b = model.dconv_layers_4_groupnorm_bias[freq_idx][encdec_idx][layer_idx][sub].data();
+        p.scale = model.dconv_layers_6_scale[freq_idx][encdec_idx][layer_idx][sub].data();
+        return p;
     };
+    const DConvParams p0 = params(0), p1 = params(1);
 
-    y = demucscpp::group_norm_fused_gelu(
-        y,
-        model.dconv_layers_1_groupnorm_weight[freq_idx][encdec_idx][layer_idx]
-                                             [0],
-        model.dconv_layers_1_groupnorm_bias[freq_idx][encdec_idx][layer_idx][0],
-        1e-05);
+    // sub-block 1: kernel 3, dilation 1, padding 1 -> length L
+    // sub-block 2: kernel 3, dilation 2, padding 2 -> upstream allocates
+    // L + 2 columns (the last two zero), then crops to mid_crop
+    const int lout = std::min(mid_crop, L + 2);
+    if (lout < L)
+        throw std::runtime_error("apply_dconv: crop shorter than the input");
 
-    switch (layer_idx)
+    Eigen::Tensor3dXf out(C, lout, B);
+
+    // batch elements per pass: keep the 2C x L intermediate around 1 MB
+    const long long per = (long long)2 * C * std::max(L, lout);
+    const int nb = (int)std::max<long long>(1, std::min<long long>(B, (256 * 1024) / per));
+
+    std::vector<float> col, hbuf, zbuf, mid;
+    if (B == 1 && per > 256 * 1024)
     {
-    case 0:
-        y = demucscpp::conv1d<6, 96, 1, 1, 0, 1>(
-            y,
-            model.dconv_layers_3_conv1d_weight[freq_idx][encdec_idx][layer_idx]
-                                              [0],
-            model.dconv_layers_3_conv1d_bias[freq_idx][encdec_idx][layer_idx]
-                                            [0]);
-        break;
-    case 1:
-        y = demucscpp::conv1d<12, 192, 1, 1, 0, 1>(
-            y,
-            model.dconv_layers_3_conv1d_weight[freq_idx][encdec_idx][layer_idx]
-                                              [0],
-            model.dconv_layers_3_conv1d_bias[freq_idx][encdec_idx][layer_idx]
-                                            [0]);
-        break;
-    case 2:
-        y = demucscpp::conv1d<24, 384, 1, 1, 0, 1>(
-            y,
-            model.dconv_layers_3_conv1d_weight[freq_idx][encdec_idx][layer_idx]
-                                              [0],
-            model.dconv_layers_3_conv1d_bias[freq_idx][encdec_idx][layer_idx]
-                                            [0]);
-        break;
-    case 3:
-        y = demucscpp::conv1d<48, 768, 1, 1, 0, 1>(
-            y,
-            model.dconv_layers_3_conv1d_weight[freq_idx][encdec_idx][layer_idx]
-                                              [0],
-            model.dconv_layers_3_conv1d_bias[freq_idx][encdec_idx][layer_idx]
-                                            [0]);
-        break;
-    };
-
-    y = demucscpp::group_norm(
-        y,
-        model.dconv_layers_4_groupnorm_weight[freq_idx][encdec_idx][layer_idx]
-                                             [0],
-        model.dconv_layers_4_groupnorm_bias[freq_idx][encdec_idx][layer_idx][0],
-        1, 1e-05);
-
-    // Flayr Chop: fused glu + layer scale + residual (one pass, no temporaries)
-    y = demucscpp::glu_scale_residual(
-        y, model.dconv_layers_6_scale[freq_idx][encdec_idx][layer_idx][0],
-        y_copy);
-
-    // store another copy of y to sum back later
-    y_copy = y;
-
-    // NEXT ENTIRE SUBSEQUENCE OF DCONV WITH SLIGHTLY DIFFERENT PARAMS
-
-    // Conv1d(48, 6, kernel_size=(3,), stride=(1,), padding=(2,), dilation=(2,))
-    switch (layer_idx)
-    {
-    case 0:
-        y = demucscpp::conv1d<48, 6, 3, 1, 2, 2>(
-            y,
-            model.dconv_layers_0_conv1d_weight[freq_idx][encdec_idx][layer_idx]
-                                              [1],
-            model.dconv_layers_0_conv1d_bias[freq_idx][encdec_idx][layer_idx]
-                                            [1]);
-        break;
-    case 1:
-        y = demucscpp::conv1d<96, 12, 3, 1, 2, 2>(
-            y,
-            model.dconv_layers_0_conv1d_weight[freq_idx][encdec_idx][layer_idx]
-                                              [1],
-            model.dconv_layers_0_conv1d_bias[freq_idx][encdec_idx][layer_idx]
-                                            [1]);
-        break;
-    case 2:
-        y = demucscpp::conv1d<192, 24, 3, 1, 2, 2>(
-            y,
-            model.dconv_layers_0_conv1d_weight[freq_idx][encdec_idx][layer_idx]
-                                              [1],
-            model.dconv_layers_0_conv1d_bias[freq_idx][encdec_idx][layer_idx]
-                                            [1]);
-        break;
-    case 3:
-        y = demucscpp::conv1d<384, 48, 3, 1, 2, 2>(
-            y,
-            model.dconv_layers_0_conv1d_weight[freq_idx][encdec_idx][layer_idx]
-                                              [1],
-            model.dconv_layers_0_conv1d_bias[freq_idx][encdec_idx][layer_idx]
-                                            [1]);
-        break;
-    };
-
-    // cropping the last axis keeps a contiguous prefix (column-major)
-    if (mid_crop < y.dimension(2))
-    {
-        Eigen::Tensor3dXf y_cropped(y.dimension(0), y.dimension(1), mid_crop);
-        std::memcpy(y_cropped.data(), y.data(), sizeof(float) * y_cropped.size());
-        y = std::move(y_cropped);
-    }
-
-    y = demucscpp::group_norm_fused_gelu(
-        y,
-        model.dconv_layers_1_groupnorm_weight[freq_idx][encdec_idx][layer_idx]
-                                             [1],
-        model.dconv_layers_1_groupnorm_bias[freq_idx][encdec_idx][layer_idx][1],
-        1e-05);
-
-    // Conv1d(6, 96, kernel_size=(1,), stride=(1,))
-    switch (layer_idx)
-    {
-    case 0:
-        y = demucscpp::conv1d<6, 96, 1, 1, 0, 1>(
-            y,
-            model.dconv_layers_3_conv1d_weight[freq_idx][encdec_idx][layer_idx]
-                                              [1],
-            model.dconv_layers_3_conv1d_bias[freq_idx][encdec_idx][layer_idx]
-                                            [1]);
-        break;
-    case 1:
-        y = demucscpp::conv1d<12, 192, 1, 1, 0, 1>(
-            y,
-            model.dconv_layers_3_conv1d_weight[freq_idx][encdec_idx][layer_idx]
-                                              [1],
-            model.dconv_layers_3_conv1d_bias[freq_idx][encdec_idx][layer_idx]
-                                            [1]);
-        break;
-    case 2:
-        y = demucscpp::conv1d<24, 384, 1, 1, 0, 1>(
-            y,
-            model.dconv_layers_3_conv1d_weight[freq_idx][encdec_idx][layer_idx]
-                                              [1],
-            model.dconv_layers_3_conv1d_bias[freq_idx][encdec_idx][layer_idx]
-                                            [1]);
-        break;
-    case 3:
-        y = demucscpp::conv1d<48, 768, 1, 1, 0, 1>(
-            y,
-            model.dconv_layers_3_conv1d_weight[freq_idx][encdec_idx][layer_idx]
-                                              [1],
-            model.dconv_layers_3_conv1d_bias[freq_idx][encdec_idx][layer_idx]
-                                            [1]);
-        break;
-    };
-
-    y = demucscpp::group_norm(
-        y,
-        model.dconv_layers_4_groupnorm_weight[freq_idx][encdec_idx][layer_idx]
-                                             [1],
-        model.dconv_layers_4_groupnorm_bias[freq_idx][encdec_idx][layer_idx][1],
-        1, 1e-05);
-
-    const bool fuse_residual = (y_copy.dimension(0) == y.dimension(0) &&
-                                y_copy.dimension(2) == y.dimension(2) &&
-                                y_copy.dimension(1) * 2 == y.dimension(1));
-    if (fuse_residual)
-    {
-        y = demucscpp::glu_scale_residual(
-            y, model.dconv_layers_6_scale[freq_idx][encdec_idx][layer_idx][1],
-            y_copy);
+        mid.resize((size_t)C * L);
+        dconv_block_long(p0, y.data(), mid.data(), C, H, L, 1, L, col, hbuf, zbuf);
+        dconv_block_long(p1, mid.data(), out.data(), C, H, L, 2, lout, col, hbuf,
+                         zbuf);
+        y = std::move(out);
         return;
     }
-    y = demucscpp::glu(y, 1);
-    y = demucscpp::layer_scale(
-        y, model.dconv_layers_6_scale[freq_idx][encdec_idx][layer_idx][1]);
-
-    // if y_copy is shorter than y in the last dim
-    // pad the last dim with zeros to match
-
-    if (y_copy.dimension(2) < y.dimension(2))
+    for (int b0 = 0; b0 < B; b0 += nb)
     {
-        // pad the last dim with zeros to match
-        Eigen::Tensor3dXf padded_tensor_copy(
-            y_copy.dimension(0), y_copy.dimension(1), y.dimension(2));
-        padded_tensor_copy.setZero();
-        padded_tensor_copy.slice(Eigen::array<Eigen::Index, 3>({0, 0, 0}),
-                                 y_copy.dimensions()) = y_copy;
-        y_copy = padded_tensor_copy;
+        const int n = std::min(nb, B - b0);
+        mid.resize((size_t)C * L * n);
+        dconv_block(p0, y.data() + (size_t)C * L * b0, mid.data(), C, H, L, n, 1, L,
+                    col, hbuf, zbuf);
+        dconv_block(p1, mid.data(), out.data() + (size_t)C * lout * b0, C, H, L, n, 2,
+                    lout, col, hbuf, zbuf);
     }
-
-    // now sum with itself
-    y = y + y_copy;
+    y = std::move(out);
 }
 
+// Flayr Chop: transformer layer rewritten to stream through cache. Same math
+// as upstream, evaluated in blocks:
+//  - one GEMM for Q|K|V (self-attention) or Q and K|V (cross-attention);
+//    heads are read in place (a head is a contiguous T x 64 column block);
+//  - Q is pre-scaled by 1/sqrt(64) = 0.125 (a power of two, so the scores
+//    are bit-identical to scaling them afterwards);
+//  - attention runs per head over blocks of query tokens, so each S x Tb
+//    block of scores is softmaxed while it is still in cache instead of
+//    materializing all S x T scores (29 MB per head for the frequency
+//    branch); the softmax normalization is applied to the Tb x 64 output
+//    rows instead of the S x Tb probabilities (same value up to rounding);
+//  - the feed-forward block runs over blocks of tokens (the T x 2048 hidden
+//    activation never exists in full);
+//  - norm_out (GroupNorm(1) over the whole T x C, as upstream's
+//    shuffle + group_norm + shuffle computes it) runs on the T x C layout.
 void demucscpp::common_encoder_layer(
     Eigen::Tensor3dXf &q,       // q = x = frequency
     const Eigen::Tensor3dXf &k, // k = xt = time
@@ -501,140 +596,147 @@ void demucscpp::common_encoder_layer(
     // optional params
     float eps, const bool self_attention)
 {
-    // Normalize x using the norm1 weights and biases
-    Eigen::Tensor3dXf q_norm =
-        demucscpp::layer_norm(q, norm1_weight, norm1_bias, eps);
+    const int T = (int)q.dimension(1);
+    const int C = (int)q.dimension(2);
+    const int S = (int)k.dimension(1);
+    if (q.dimension(0) != 1 || k.dimension(0) != 1 || k.dimension(2) != C ||
+        C % num_heads != 0)
+        throw std::runtime_error("common_encoder_layer: unexpected shapes");
+    const int hd = C / num_heads;
 
-    Eigen::Tensor3dXf k_norm;
+    // ---- projections (rows = tokens, columns = channels), computed over
+    // blocks of 256 tokens so the GEMM operands stay in cache
+    constexpr int kRowBlock = 256;
+    Eigen::MatrixXf qkv; // self: T x 3C (Q|K|V); cross: T x C (Q)
+    Eigen::MatrixXf kv;  // cross: S x 2C (K|V)
+    {
+        Eigen::Tensor3dXf q_norm =
+            demucscpp::layer_norm(q, norm1_weight, norm1_bias, eps);
+        Eigen::Map<const Eigen::MatrixXf> qn(q_norm.data(), T, C);
+        const auto wq = self_attention ? in_proj_weight.topRows(3 * C)
+                                       : in_proj_weight.topRows(C);
+        qkv.resize(T, wq.rows());
+        for (int t0 = 0; t0 < T; t0 += kRowBlock)
+        {
+            const int n = std::min(kRowBlock, T - t0);
+            qkv.middleRows(t0, n).noalias() = qn.middleRows(t0, n) * wq.transpose();
+        }
+        if (!self_attention)
+        {
+            Eigen::Tensor3dXf k_norm =
+                demucscpp::layer_norm(k, norm2_weight, norm2_bias, eps);
+            Eigen::Map<const Eigen::MatrixXf> kn(k_norm.data(), S, C);
+            const auto wkv = in_proj_weight.bottomRows(2 * C);
+            kv.resize(S, 2 * C);
+            for (int s0 = 0; s0 < S; s0 += kRowBlock)
+            {
+                const int n = std::min(kRowBlock, S - s0);
+                kv.middleRows(s0, n).noalias() = kn.middleRows(s0, n) * wkv.transpose();
+            }
+        }
+    }
+    const float qscale = 1.0f / std::sqrt((float)hd);
+    for (int c = 0; c < C; ++c)
+        qkv.col(c).array() = (qkv.col(c).array() + in_proj_bias(c)) * qscale;
+    float *Kd, *Vd;
     if (self_attention)
     {
-        k_norm = q_norm;
+        for (int c = C; c < 3 * C; ++c)
+            qkv.col(c).array() += in_proj_bias(c);
+        Kd = qkv.data() + (size_t)T * C;
+        Vd = qkv.data() + (size_t)2 * T * C;
     }
     else
     {
-        k_norm = demucscpp::layer_norm(k, norm2_weight, norm2_bias, eps);
+        for (int c = 0; c < 2 * C; ++c)
+            kv.col(c).array() += in_proj_bias(C + c);
+        Kd = kv.data();
+        Vd = kv.data() + (size_t)S * C;
     }
 
-    // Cross-attention block
-    // Compute Q, K, V matrices
-
-    int B = q.dimension(0);
-    int T = q.dimension(1);
-    int C = q.dimension(2);
-
-    int S = k.dimension(1);
-
-    // Reshape q, k to 2D matrix of dimensions (T*B, C)
-
-    // Use Eigen::Map to avoid manual loops for reshaping
-    Eigen::MatrixXf q_norm_2d =
-        Eigen::Map<const Eigen::MatrixXf>(q_norm.data(), T, C);
-    Eigen::MatrixXf k_norm_2d =
-        Eigen::Map<const Eigen::MatrixXf>(k_norm.data(), S, C);
-
-    // Compute Q, K, V matrices
-    Eigen::MatrixXf Q =
-        q_norm_2d * in_proj_weight.block(0, 0, C, C).transpose();
-    Eigen::MatrixXf K =
-        k_norm_2d * in_proj_weight.block(C, 0, C, C).transpose();
-    Eigen::MatrixXf V =
-        k_norm_2d * in_proj_weight.block(2 * C, 0, C, C).transpose();
-
-    Eigen::VectorXf q_bias = in_proj_bias.segment(0, C);
-    Eigen::VectorXf k_bias = in_proj_bias.segment(C, C);
-    Eigen::VectorXf v_bias = in_proj_bias.segment(2 * C, C);
-
-    // copied from linear layer: ff1.rowwise() += linear1_bias.transpose();
-    Q.rowwise() += q_bias.transpose();
-    K.rowwise() += k_bias.transpose();
-    V.rowwise() += v_bias.transpose();
-
-    int head_split = C / num_heads;
-
-    // map matrices to tensors
-    Eigen::Tensor3dXf Q_heads =
-        Eigen::TensorMap<Eigen::Tensor3dXf>(Q.data(), T, head_split, num_heads);
-    Eigen::Tensor3dXf K_heads =
-        Eigen::TensorMap<Eigen::Tensor3dXf>(K.data(), S, head_split, num_heads);
-    Eigen::Tensor3dXf V_heads =
-        Eigen::TensorMap<Eigen::Tensor3dXf>(V.data(), S, head_split, num_heads);
-
-    Eigen::MatrixXf cross_attn_out(T, C);
-
-    for (int h = 0; h < num_heads; ++h)
+    // ---- attention, per head and block of query tokens
+    Eigen::MatrixXf attn(T, C);
     {
-        // Extract the h-th head from Q_heads and K_heads
-        Eigen::Tensor2dXf Q_head_tensor = Q_heads.chip(h, 2);
-        Eigen::Tensor2dXf K_head_tensor = K_heads.chip(h, 2);
-        Eigen::Tensor2dXf V_head_tensor = V_heads.chip(h, 2);
+        const int tb = std::max(64, std::min(T, (int)((512 * 1024) / S) / 32 * 32));
+        Eigen::MatrixXf scores(S, tb);
+        Eigen::VectorXf inv_sum(tb);
+        for (int h = 0; h < num_heads; ++h)
+        {
+            Eigen::Map<const Eigen::MatrixXf> Qh(qkv.data() + (size_t)T * hd * h, T, hd);
+            Eigen::Map<const Eigen::MatrixXf> Kh(Kd + (size_t)S * hd * h, S, hd);
+            Eigen::Map<const Eigen::MatrixXf> Vh(Vd + (size_t)S * hd * h, S, hd);
+            for (int t0 = 0; t0 < T; t0 += tb)
+            {
+                const int n = std::min(tb, T - t0);
+                auto sc = scores.leftCols(n);
+                sc.noalias() = Kh * Qh.middleRows(t0, n).transpose();
+                for (int t = 0; t < n; ++t)
+                    inv_sum(t) = 1.0f / softmax_exp_inplace(sc.col(t).data(), S);
+                auto out = attn.block(t0, (Eigen::Index)h * hd, n, hd);
+                out.noalias() = sc.transpose() * Vh;
+                out.array().colwise() *= inv_sum.head(n).array();
+            }
+        }
+    }
+    qkv.resize(0, 0);
+    kv.resize(0, 0);
 
-        // Reshape the tensors to matrices
-        Eigen::Map<Eigen::MatrixXf> Q_head(Q_head_tensor.data(), T, head_split);
-        Eigen::Map<Eigen::MatrixXf> K_head(K_head_tensor.data(), S, head_split);
-        Eigen::Map<Eigen::MatrixXf> V_head(V_head_tensor.data(), S, head_split);
-
-        // Flayr Chop: scores computed transposed (S x T) so every softmax
-        // runs over a contiguous column; vectorized exp, no replicate()
-        // temporaries. Mathematically identical to upstream.
-        Eigen::MatrixXf scores_t(S, T);
-        scores_t.noalias() =
-            (K_head * Q_head.transpose()) * (1.0f / std::sqrt((float)head_split));
-        for (int t = 0; t < T; ++t)
-            softmax_inplace(scores_t.col(t).data(), S);
-
-        Eigen::MatrixXf cross_attn_head(T, head_split);
-        cross_attn_head.noalias() = scores_t.transpose() * V_head;
-        cross_attn_out.block(0, h * head_split, T, head_split) =
-            cross_attn_head;
+    // ---- output projection, LayerScale, residual
+    Eigen::Map<Eigen::MatrixXf> q_2d(q.data(), T, C);
+    {
+        Eigen::MatrixXf out_proj(T, C);
+        for (int t0 = 0; t0 < T; t0 += kRowBlock)
+        {
+            const int n = std::min(kRowBlock, T - t0);
+            out_proj.middleRows(t0, n).noalias() =
+                attn.middleRows(t0, n) * out_proj_weight.transpose();
+        }
+        attn.resize(0, 0);
+        for (int c = 0; c < C; ++c)
+            q_2d.col(c).array() +=
+                (out_proj.col(c).array() + out_proj_bias(c)) * gamma1_scale(c);
     }
 
-    // Copy q into q_2d (Map q to 2D matrix)
-    Eigen::Map<Eigen::MatrixXf> q_2d(q.data(), T, C);
+    // ---- feed-forward over blocks of tokens
+    {
+        Eigen::Tensor3dXf q_norm =
+            demucscpp::layer_norm(q, norm3_weight, norm3_bias, eps);
+        Eigen::Map<const Eigen::MatrixXf> qn(q_norm.data(), T, C);
+        const int F = (int)linear1_weight.rows();
+        const int fb = std::min(T, kRowBlock);
+        Eigen::MatrixXf ff1(fb, F), ff2(fb, C);
+        for (int t0 = 0; t0 < T; t0 += fb)
+        {
+            const int n = std::min(fb, T - t0);
+            auto f1 = ff1.topRows(n);
+            f1.noalias() = qn.middleRows(t0, n) * linear1_weight.transpose();
+            f1.rowwise() += linear1_bias.transpose();
+            for (int c = 0; c < F; ++c)
+                demucscpp::gelu_inplace(f1.col(c).data(), n);
+            auto f2 = ff2.topRows(n);
+            f2.noalias() = f1 * linear2_weight.transpose();
+            for (int c = 0; c < C; ++c)
+                q_2d.col(c).segment(t0, n).array() +=
+                    (f2.col(c).array() + linear2_bias(c)) * gamma2_scale(c);
+        }
+    }
 
-    // Apply output projection with gamma1_scale
-    Eigen::MatrixXf out_proj = cross_attn_out * out_proj_weight.transpose();
-    out_proj.array().rowwise() += out_proj_bias.transpose().array();
-    out_proj = out_proj.array().rowwise() * gamma1_scale.transpose().array();
-
-    // Add to q
-    q_2d += out_proj;
-
-    // before feedforward, apply norm3 to x i.e. q
-    q_norm = demucscpp::layer_norm(q, norm3_weight, norm3_bias, eps);
-    q_norm_2d = Eigen::Map<const Eigen::MatrixXf>(q_norm.data(), T, C);
-
-    // Feedforward block
-    // Linear layer 1
-    Eigen::MatrixXf ff1 = q_norm_2d * linear1_weight.transpose();
-    ff1.rowwise() += linear1_bias.transpose();
-
-    ff1 = demucscpp::gelu(ff1);
-
-    // Linear layer 2
-    Eigen::MatrixXf ff2 = ff1 * linear2_weight.transpose();
-    ff2.rowwise() += linear2_bias.transpose();
-
-    // Apply gamma_2 scale directly on 2D matrix
-    ff2 = ff2.array().rowwise() * gamma2_scale.transpose().array();
-
-    // now x = x + self.gamma_2(self._ff_block(self.norm3(q))))
-    q_2d += ff2;
-
-    // Map the 2D data back into a 3D tensor with dimensions (T, B, C)
-    q = Eigen::TensorMap<Eigen::Tensor3dXf>(q_2d.data(), T, B, C);
-
-    // Swap the first and last dimensions to get a tensor with dimensions (B, C,
-    // T)
-    Eigen::array<int, 3> permute_dims_3 = {1, 2, 0};
-    Eigen::Tensor3dXf q_shuf = q.shuffle(permute_dims_3);
-
-    // Normalize the output with norm_out/MyGroupNorm
-    q = demucscpp::group_norm(q_shuf, norm_out_weight, norm_out_bias, 1, eps);
-
-    Eigen::array<int, 3> permute_dims_4 = {0, 2, 1};
-    q_shuf = q.shuffle(permute_dims_4);
-
-    q = q_shuf;
+    // ---- norm_out: GroupNorm(1, C) over all T x C values (per-channel affine)
+    {
+        const double cnt = (double)T * C;
+        double sum = 0.0;
+        for (int t = 0; t < T; ++t)
+            sum += q_2d.row(t).cast<double>().sum();
+        const float mean = (float)(sum / cnt);
+        double ss = 0.0;
+        for (int c = 0; c < C; ++c)
+            ss += (q_2d.col(c).array() - mean).square().cast<double>().sum();
+        const float inv = 1.0f / std::sqrt((float)(ss / (cnt - 1.0)) + eps);
+        for (int c = 0; c < C; ++c)
+            q_2d.col(c).array() = (q_2d.col(c).array() - mean) * inv *
+                                      norm_out_weight(c) +
+                                  norm_out_bias(c);
+    }
 }
 
 void demucscpp_v3::local_attention(

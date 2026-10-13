@@ -1,10 +1,11 @@
 // stems_cli: separate a WAV file into stems with the Flayr Chop engine.
 //
-//   stems_cli in.wav outdir [modelPath] [threads]
+//   stems_cli in.wav outdir [modelPath] [threads] [engine]
 //
 // Reads 16/24/32-bit PCM or 32/64-bit float WAV (mono or stereo, any rate),
 // writes <outdir>/<Stem>.wav as 32-bit float at the input rate and length.
-// Without modelPath it uses chop::stems::defaultModelPath().
+// Without modelPath (or with "") it uses chop::stems::defaultModelPath().
+// engine forces a network code path ("generic", "avx2"); default automatic.
 
 #include "stems/Stems.h"
 
@@ -99,11 +100,15 @@ bool writeWav(const std::filesystem::path& path, const std::vector<float>& l, co
 int main(int argc, char** argv)
 {
     if (argc < 3) {
-        std::fprintf(stderr, "usage: %s in.wav outdir [modelPath] [threads]\n", argv[0]);
+        std::fprintf(stderr, "usage: %s in.wav outdir [modelPath] [threads] [engine]\n", argv[0]);
         return 2;
     }
-    const std::string model = argc > 3 ? argv[3] : chop::stems::defaultModelPath();
+    const std::string model = argc > 3 && argv[3][0] ? argv[3] : chop::stems::defaultModelPath();
     const int threads = argc > 4 ? std::atoi(argv[4]) : 0;
+    if (argc > 5 && !chop::stems::forceEngine(argv[5])) {
+        std::fprintf(stderr, "engine '%s' is not available on this machine\n", argv[5]);
+        return 2;
+    }
     if (!chop::stems::modelAvailable(model)) {
         std::fprintf(stderr, "model not found or incomplete: %s\nrun scripts/fetch-model.sh first\n", model.c_str());
         return 3;
@@ -117,11 +122,14 @@ int main(int argc, char** argv)
     }
     const int n = (int)w.left.size();
     std::printf("input: %d frames, %d ch, %.0f Hz (%.2f s)\n", n, w.channels, w.rate, n / w.rate);
-    std::printf("model: %s\nthreads: %d\n", model.c_str(), threads > 0 ? threads : chop::stems::defaultThreadCount());
+    std::printf("model: %s\nthreads: %d\nengine: %s\n", model.c_str(),
+                threads > 0 ? threads : chop::stems::defaultThreadCount(), chop::stems::activeEngine());
 
     const bool mono = w.channels == 1;
     chop::stems::Separated sep;
     int lastPct = -1;
+    int readyCalls = 0, readyEnd = 0;
+    double firstReady = -1.0;
     const auto t0 = std::chrono::steady_clock::now();
     const bool ok = chop::stems::separate(
         w.left.data(), mono ? w.left.data() : w.right.data(), n, w.rate, model, sep,
@@ -131,13 +139,23 @@ int main(int argc, char** argv)
             lastPct = pct;
             return true;
         },
-        threads, &err);
+        threads, &err,
+        [&](int start, int end) {
+            if (start != readyEnd)
+                std::fprintf(stderr, "progressive results out of order: %d..%d after %d\n", start, end, readyEnd);
+            if (firstReady < 0)
+                firstReady = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+            readyEnd = end;
+            ++readyCalls;
+        });
     const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
     if (!ok) {
         std::fprintf(stderr, "separation failed: %s\n", err.c_str());
         return 1;
     }
     std::printf("separated in %.2f s (%.1fx realtime)\n", secs, (n / w.rate) / secs);
+    std::printf("progressive: %d ranges, first ready after %.2f s, covered %d of %d samples\n", readyCalls,
+                firstReady, readyEnd, n);
 
     std::filesystem::path outDir = std::filesystem::u8path(argv[2]);
     std::filesystem::create_directories(outDir);

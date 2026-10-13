@@ -4,7 +4,9 @@
 // is re-entrant (no globals, no static mutable state) and is meant to run on a background thread.
 //
 // Pipeline overview:
-//   1. Peak-normalise and decimate to roughly 22 kHz (windowed-sinc FIR).
+//   1. Peak-normalise and resample to a fixed 22.05 kHz working rate (windowed-sinc FIR decimation plus a
+//      fractional windowed-sinc step for rates that are not multiples), so results do not depend on the
+//      file's sample rate.
 //   2. Onset detection function (ODF): log-magnitude spectral flux over ~12 bands per octave with a
 //      SuperFlux-style max filter across neighbouring bands (suppresses vibrato), 46 ms frames, 5.8 ms hop.
 //      Band-limited ODFs are kept for < 160 Hz (kick) and 160 Hz..3 kHz (snare body) for metrical decisions.
@@ -14,24 +16,32 @@
 //      signal or its first difference, whichever shows the clearer rise), so reported times are not smeared
 //      by the analysis frame. Weak candidates without a 2x waveform rise are dropped (beating, vibrato).
 //   4. Tempo: autocorrelation of the ODF, comb filtered over 4 harmonics with a mild log-tempo prior. The
-//      winning tempo family competes with its 2:3 and 3:4 relatives (and, for files up to 40 s, the family
-//      implied by the loop length being a whole number of bars) on how much onset strength lands on each
-//      family's straight 8th grid. Period and phase are refined by weighted linear regression of onset
-//      times against beat indices over a window that doubles until it spans the file, then polished by a
-//      direct +-0.6 % period / phase search maximising the ODF on every beat (a 10 minute file stays
-//      phase locked). Octave: below 80 BPM take the double (prefer 80..160); from 80 to
-//      100 BPM double only if half-beats carry nearly as much kick+snare energy as beats, or the snare band hits
-//      every beat on the kick's off-beat (a backbeat at the double tempo, as in drum and bass).
+//      winning tempo family (all its octaves) competes with its 3:2 and 4:3 relatives and, for files up to
+//      70 s, the family implied by the length being a whole number of bars. Each family is refined on its
+//      own and scored on onset strength on its straight 8th grid, ACF at one and two bars, and how well the
+//      length holds a whole (preferably power-of-two) number of bars when the file starts on its grid. Period
+//      and phase are refined by weighted linear regression of onset times against beat indices over a window
+//      that doubles until it spans the file, then polished by a direct +-0.6 % period / phase search
+//      maximising the ODF on every beat (a 10 minute file stays phase locked). Octave: below 80 BPM take the
+//      double (prefer 80..160); from 80 to 100 BPM double only if half-beats carry nearly as much
+//      kick+snare energy as beats, or the snare band hits every beat on the kick's off-beat (a backbeat at the
+//      double tempo, as in drum and bass). Confidence is the share of onsets on the beat's 16th / triplet
+//      grid, reduced when a 3:2 / 4:3 family scored nearly as well; the other octave and those families are
+//      reported as tempo candidates.
 //   5. Downbeat: the beat class (mod 4) with kick but without snare energy, nudged towards the class of the
 //      first strong onset (loops and most songs start on the one).
 //   6. Key: 0.74 s FFT frames at ~11 kHz, spectral peak picking with parabolic interpolation, global tuning
-//      estimate (circular mean of cent deviations), chroma from tuning-corrected peaks plus a bass chroma.
-//      Each of the 24 keys is scored by the mean correlation with the Krumhansl-Kessler and Temperley
-//      (Kostka-Payne) profiles plus the share of chroma energy inside the key's 7-note scale.
+//      estimate, compressed chroma with harmonic suppression, a bass chroma and lowest-note histogram, the
+//      chord of every bar and the first / last chord. A linear model over these (rotated to each candidate
+//      tonic) scores the 24 keys; confidence is the winner's softmax probability. See keyScores.
+//   7. Stems (analyseWithStems): rhythm from the drum stem, chroma from the harmonic + bass stems, bass
+//      evidence from the bass stem; the mix stands in for any stem that is missing or near silent.
 //
 // Known limits: one global tempo (no tempo map for live or rubato material), 4/4 assumed for the downbeat,
-// one global key (no modulation tracking), relative major/minor is the most common key error, and very quiet
-// hits inside the decay of a much louder one (ghost hats right after a snare) can be missed.
+// one global key (no modulation tracking), single-line material (a bass line or riff alone) often does not
+// state its key, a loop whose rhythm reads equally well at a 3:2 related tempo stays a coin toss (reported
+// with low confidence and both tempi as candidates), and very quiet hits inside the decay of a much louder
+// one (ghost hats right after a snare) can be missed.
 
 #pragma once
 
@@ -46,6 +56,9 @@
 namespace chop {
 namespace analysis {
 
+struct TempoCandidate { double bpm; float score; };        // score 0..1 relative to the best
+struct KeyCandidate { int key; bool minor; float score; };  // score 0..1 relative to the best
+
 struct Result {
     double bpm = 0;            // 60..200 folded to the most musical octave (prefer 80..160 unless clearly otherwise)
     double firstBeatSec = 0;   // phase of the beat grid (a downbeat if one can be found)
@@ -55,6 +68,11 @@ struct Result {
     float keyConfidence = 0;   // 0..1
     std::vector<double> onsetsSec;     // transient times, sorted
     std::vector<float> onsetStrength;  // same size, 0..1 relative to the strongest hits in the file
+    // Alternatives for the UI, best first (the first entry matches bpm / key). Tempo: up to 4 musically
+    // distinct tempi (the other octave and 3:2 / 4:3 relatives that scored well). Key: up to 3 keys (the
+    // relative major/minor is usually second).
+    std::vector<TempoCandidate> tempoCandidates;
+    std::vector<KeyCandidate> keyCandidates;
 };
 
 enum class ChopMode { Auto, Beats, Even };
@@ -200,6 +218,68 @@ inline std::vector<float> decimate(const float* x, int n, int factor, float gain
         out[(size_t)m] = acc;
     }
     return out;
+}
+
+// Fractional-ratio windowed-sinc (Blackman, 8 zero crossings a side) resampler with a 1024-phase kernel
+// table. Linear phase (no time shift); cut-off at 0.45 of the lower rate, the same as decimate(), so a 48 kHz
+// file reaches the working rate with the same band limit as a 44.1 kHz one.
+inline std::vector<float> resample(const std::vector<float>& x, double srIn, double srOut) {
+    std::vector<float> out;
+    const int n = (int)x.size();
+    if (n <= 0 || !(srIn > 0) || !(srOut > 0)) return out;
+    const double ratio = srIn / srOut;                         // input samples per output sample
+    const double fc = 0.45 * std::min(srIn, srOut) / srIn;     // cycles per input sample (as decimate)
+    const int half = (int)std::ceil(8.0 / (2.0 * fc));
+    const int L = 2 * half + 1, P = 1024;
+    std::vector<float> table((size_t)(P + 1) * (size_t)L);
+    for (int ph = 0; ph <= P; ++ph) {
+        const double frac = (double)ph / P;
+        double sum = 0;
+        float* row = &table[(size_t)ph * (size_t)L];
+        for (int i = 0; i < L; ++i) {
+            const double u = i - half - frac;  // tap position relative to the output instant
+            const double sv = std::fabs(u) < 1e-12 ? 2.0 * fc : std::sin(2.0 * kPi * fc * u) / (kPi * u);
+            const double wpos = (u + half + 1.0) / (2.0 * half + 2.0);  // 0..1 across the window
+            const double w = 0.42 - 0.5 * std::cos(2.0 * kPi * wpos) + 0.08 * std::cos(4.0 * kPi * wpos);
+            row[i] = (float)(sv * w);
+            sum += sv * w;
+        }
+        for (int i = 0; i < L; ++i) row[i] = (float)(row[i] / sum);
+    }
+    const long outN = (long)std::floor((n - 1) / ratio) + 1;
+    out.resize((size_t)outN);
+    for (long m = 0; m < outN; ++m) {
+        const double t = m * ratio;
+        long k = (long)std::floor(t);
+        int ph = (int)std::lround((t - k) * P);
+        const float* h = &table[(size_t)ph * (size_t)L];
+        const long lo = k - half;
+        float acc = 0;
+        if (lo >= 0 && lo + L <= n) {
+            const float* xp = x.data() + lo;
+            for (int i = 0; i < L; ++i) acc += h[i] * xp[i];
+        } else {
+            for (int i = 0; i < L; ++i) {
+                const long j = lo + i;
+                if (j >= 0 && j < n) acc += h[i] * x[(size_t)j];
+            }
+        }
+        out[(size_t)m] = acc;
+    }
+    return out;
+}
+
+// Every analysis runs at one fixed working rate, whatever the file's rate: frame lengths, hops, band edges
+// and every threshold were tuned there, and the results must not depend on whether a file is 44.1, 48 or
+// 96 kHz. Integer decimation first (cheap), then a fractional step when the rate is not a multiple.
+constexpr double kWorkRate = 22050.0;
+
+inline std::vector<float> toWorkingRate(const float* x, int n, double sampleRate, float gain) {
+    const int dec = std::max(1, (int)std::floor(sampleRate / kWorkRate + 1e-9));
+    std::vector<float> y = decimate(x, n, dec, gain);
+    const double r1 = sampleRate / dec;
+    if (std::fabs(r1 - kWorkRate) > 1e-6 * kWorkRate) y = resample(y, r1, kWorkRate);
+    return y;
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -547,7 +627,45 @@ inline double fitPhase(const OdfData& d, double P, double t0, double t1) {
     return bestPh;
 }
 
-struct TempoInfo { double bpm = 0, firstBeat = 0; float conf = 0; };
+// How well a file of `len` seconds suits a tempo family as a trimmed loop: the tempo that makes the file
+// a whole number of 4/4 bars (1, 2, 4, 8, ... bars score 1; other even counts 0.6, odd 0.4) must lie within
+// 2 % of an octave of `bpm`. 0 when no bar count fits or the file is too long for its length to say
+// anything. Trimmed loops are the common case in a sampler, and their length is the one cue that separates
+// 128 from 96 or 85.3 when the rhythm is syncopated (3-3-2 patterns) or absent (pads).
+inline double loopFit(double bpm, double len) {
+    if (len < 1.0 || len > 70.0 || !(bpm > 0)) return 0;
+    double best = 0;
+    for (int bars = 1; bars <= 64; ++bars) {
+        const double T = 240.0 * bars / len;
+        if (T > 250.0) break;
+        if (T < 40.0) continue;
+        double r = std::log2(T / bpm);
+        r -= std::round(r);  // octave equivalent
+        const double dev = std::fabs(std::exp2(r) - 1.0);
+        if (dev > 0.02) continue;
+        const double shape = (bars & (bars - 1)) == 0 ? 1.0 : (bars % 2 == 0 ? 0.6 : 0.4);
+        best = std::max(best, shape * (1.0 - 0.5 * dev / 0.02));
+    }
+    return best;
+}
+
+// Features of one tempo family (all octaves of a base tempo in 60..120 BPM), exposed for offline tuning.
+struct TempoFamily {
+    double base = 0;   // BPM in [60, 120)
+    double P = 0, a = 0;  // refined beat period / phase (seconds) of the base
+    double grid = 0;   // chance-corrected share of onset strength on its straight 8th grid
+    double comb = 0;   // ACF comb strength relative to the overall winner
+    double loop = 0;   // loopFit of the best octave member
+    double bar = 0;    // ACF at one and two bars of the member in 80..160 BPM
+    double prior = 0;  // 1 for the comb winner, 0 otherwise
+    double score = 0;
+};
+
+struct TempoInfo {
+    double bpm = 0, firstBeat = 0;
+    float conf = 0;
+    std::vector<TempoCandidate> cands;
+};
 
 // Chance-corrected share of onset strength that sits on the straight 8th-note grid of period P (seconds),
 // best phase, onsets restricted to [t0, t1]. Used to pick between tempo families (e.g. 90 vs 120, or 128 vs
@@ -577,7 +695,8 @@ inline double gridScore(const Onsets& on, double P, double t0, double t1) {
     return (best - chance) / (1.0 - chance);
 }
 
-inline TempoInfo estimateTempo(const OdfData& d, const Onsets& on, double lengthSec, double firstSound) {
+inline TempoInfo estimateTempo(const OdfData& d, const Onsets& on, double lengthSec, double firstSound,
+                               std::vector<TempoFamily>* familiesOut = nullptr) {
     TempoInfo ti;
     const int F = (int)d.full.size();
     if (F < 16 || on.t.size() < 4) return ti;
@@ -600,8 +719,8 @@ inline TempoInfo estimateTempo(const OdfData& d, const Onsets& on, double length
             o[(size_t)t] = (float)std::max(0.0, sm[(size_t)t] - m);
         }
     }
-    // 2. Autocorrelation up to 4 periods of 50 BPM, comb filtered over 4 harmonics.
-    const int maxLag = std::min(F - 2, (int)std::ceil(fr * 60.0 / 50.0 * 4.0) + 2);
+    // 2. Autocorrelation up to 4 periods of 50 BPM (and two bars at 80 BPM), comb filtered over 4 harmonics.
+    const int maxLag = std::min(F - 2, (int)std::ceil(fr * 6.0) + 2);
     if (maxLag < 8) return ti;
     std::vector<double> acf((size_t)maxLag + 1, 0.0);
     for (int l = 0; l <= maxLag; ++l) {
@@ -619,7 +738,8 @@ inline TempoInfo estimateTempo(const OdfData& d, const Onsets& on, double length
         acf[(size_t)l] = s / len;
     }
     if (!(acf[0] > 0)) return ti;
-    for (auto& v : acf) v /= acf[0];
+    const double acf0 = acf[0];
+    for (auto& v : acf) v /= acf0;
     auto A = [&](double lag, double tolFrames) {
         double m = 0;
         const int lo = (int)std::floor(lag - tolFrames), hi = (int)std::ceil(lag + tolFrames);
@@ -685,35 +805,70 @@ inline TempoInfo estimateTempo(const OdfData& d, const Onsets& on, double length
         aout = a;
     };
 
-    // 3. Tempo family competition: the comb winner against its 2:3 / 3:4 relatives and (for short files)
-    //    the loop-length family. Families with real ACF support are judged by how much onset strength
-    //    lands on their 8th-note grid after their own period refinement.
+    // 3. Tempo family competition: the comb winner against its 3:2 / 4:3 relatives and (for short files)
+    //    the loop-length family. Octaves are one family here (4:3 and 2:3 fold together); the octave is
+    //    decided in step 4. Each family is refined on its own and judged on onset strength on its straight
+    //    8th grid, the ACF at one and two bars (patterns repeat per bar, not per 3 beats) and how well the
+    //    file length holds a whole number of bars (trimmed loops). Families need real ACF comb support or a
+    //    loop-length fit to compete. (Kick + snare band level on each family's beats was also tried and
+    //    did not help on the evaluation set.)
     double P = 60.0 / foldBase(T0), a = 0;
+    std::vector<TempoFamily> fams;
+    size_t bestFam = 0;
     {
-        struct Fam { double base; double bonus; };
-        std::vector<Fam> fams;
         const double b0 = foldBase(T0);
-        fams.push_back({b0, 0.03});
-        for (double r : {2.0 / 3.0, 3.0 / 4.0, 4.0 / 3.0, 3.0 / 2.0}) fams.push_back({foldBase(T0 * r), 0.0});
-        if (lengthSec >= 2.0 && lengthSec <= 40.0) fams.push_back({foldBase(240.0 / lengthSec), 0.04});
-        // Merge near-duplicates, summing their bonuses.
-        std::vector<Fam> uniq;
-        for (const Fam& f : fams) {
-            bool merged = false;
-            for (Fam& u : uniq)
-                if (std::fabs(u.base / f.base - 1.0) < 0.015) { u.bonus += f.bonus; merged = true; break; }
-            if (!merged) uniq.push_back(f);
+        std::vector<double> bases = {b0};
+        for (double r : {4.0 / 3.0, 3.0 / 2.0}) bases.push_back(foldBase(T0 * r));
+        if (lengthSec >= 2.0 && lengthSec <= 70.0) {
+            // The loop-length family: the whole-bar count whose tempo has the best comb support.
+            double bestLc = -1, lb = 0;
+            for (int bars : {1, 2, 4, 8, 16, 32}) {
+                const double T = 240.0 * bars / lengthSec;
+                if (T < 50.0 || T > 220.0) continue;
+                const double s = comb(T);
+                if (s > bestLc) { bestLc = s; lb = T; }
+            }
+            if (lb > 0) bases.push_back(foldBase(lb));
         }
         const double c0 = familyComb(b0);
-        double bestScore = -1e9;
-        for (const Fam& f : uniq) {
-            const double fc = familyComb(f.base);
-            if (fc < 0.5 * c0 && std::abs (f.base - b0) > 1e-12) continue;
-            double Pf, af;
-            refine(f.base, Pf, af);
-            const double sc = gridScore(on, Pf, c - 10.0, c + 10.0) + f.bonus + 0.05 * (fc / std::max(1e-9, c0));
-            if (sc > bestScore) { bestScore = sc; P = Pf; a = af; }
+        for (double base : bases) {
+            bool dup = false;
+            for (const TempoFamily& f : fams) if (std::fabs(f.base / base - 1.0) < 0.015) dup = true;
+            if (dup) continue;
+            TempoFamily f;
+            f.base = base;
+            f.prior = fams.empty() ? 1.0 : 0.0;
+            f.comb = familyComb(base) / std::max(1e-9, c0);
+            refine(base, f.P, f.a);
+            f.grid = gridScore(on, f.P, c - 10.0, c + 10.0);
+            // Only a file that starts on a beat of this grid can be a trimmed loop at this tempo (an
+            // excerpt cut anywhere would otherwise fit some bar count by chance).
+            {
+                double ph = std::fmod(f.a, f.P);
+                if (ph < 0) ph += f.P;
+                const double dph = std::min(ph, f.P - ph), tolPh = std::max(0.012, 0.03 * f.P);
+                f.loop = loopFit(60.0 / f.P, lengthSec) * std::exp(-0.5 * (dph / tolPh) * (dph / tolPh));
+            }
+            double Tm = base;
+            while (Tm < 80.0) Tm *= 2.0;
+            const double L = fr * 60.0 / Tm;
+            f.bar = 4.0 * L + 1 <= maxLag ? A(4.0 * L, 1.0) : 0.0;
+            if (8.0 * L + 1 <= maxLag) f.bar = 0.5 * (f.bar + A(8.0 * L, 1.5));
+            fams.push_back(f);
         }
+        double bestScore = -1e9;
+        for (size_t i = 0; i < fams.size(); ++i) {
+            TempoFamily& f = fams[i];
+            // Weights fitted on the development half of tests/eval, jointly on trimmed loops and on random
+            // 5..20 s excerpts of the same material (where the length says nothing and must not mislead).
+            f.score = 0.25 * f.grid + 0.03 * f.prior + 0.08 * f.loop + 0.1 * f.bar;
+            const bool supported = f.comb >= 0.7 || f.loop > 0.3;
+            if (!supported && i != 0) continue;
+            if (f.score > bestScore) { bestScore = f.score; bestFam = i; }
+        }
+        P = fams[bestFam].P;
+        a = fams[bestFam].a;
+        if (familiesOut) *familiesOut = fams;
     }
 
     // 3b. Polish: the onset regression can be pulled by off-grid vocal/fill onsets in dense mixes, so finish
@@ -768,8 +923,10 @@ inline TempoInfo estimateTempo(const OdfData& d, const Onsets& on, double length
         return s;
     };
     double bpm = 60.0 / P;
+    double octScore = 0.5;  // how plausible the other octave is (0..1), for the candidate list
     if (bpm * 2.0 <= 200.5) {
         bool dbl = bpm < 79.5;
+        if (dbl) octScore = 0.6;
         if (!dbl) {
             const double onLM = sumAt(d.low, P, a, 0.0, 1, 0) + sumAt(d.mid, P, a, 0.0, 1, 0);
             const double offLM = sumAt(d.low, P, a, 0.5, 1, 0) + sumAt(d.mid, P, a, 0.5, 1, 0);
@@ -789,6 +946,7 @@ inline TempoInfo estimateTempo(const OdfData& d, const Onsets& on, double length
             const double snareShare = mTot > 0 ? (s1 + s2) / mTot : 0.0;
             const bool backbeatAtDouble = sCls != kCls && alt > 0.6 && snareShare > 0.6;
             dbl = rs >= 0.85 || backbeatAtDouble;
+            octScore = dbl ? 0.6 : std::min(0.9, 0.3 + 0.6 * rs);
         }
         if (dbl) P *= 0.5;
     }
@@ -813,7 +971,40 @@ inline TempoInfo estimateTempo(const OdfData& d, const Onsets& on, double length
         double conf = tot > 0 ? (hit / tot - chance) / (1.0 - chance) : 0.0;
         conf = std::max(0.0, std::min(1.0, conf * 1.25));
         conf *= std::min(1.0, onBeat / 8.0);
+        // A 3:2 or 4:3 related family that scored nearly as well makes the choice a coin toss, however
+        // cleanly the onsets sit on either grid.
+        double second = -1e9;
+        for (size_t i = 0; i < fams.size(); ++i)
+            if (i != bestFam && (fams[i].comb >= 0.7 || fams[i].loop > 0.3)) second = std::max(second, fams[i].score);
+        if (second > -1e9) {
+            const double margin = fams[bestFam].score - second;
+            conf *= std::max(0.2, std::min(1.0, 0.2 + 0.8 * margin / 0.15));
+        }
         ti.conf = (float)conf;
+    }
+
+    // Candidates: the winner, its other octave, then the other families at the octave nearest the winner.
+    {
+        auto add = [&](double T, double s) {
+            if (!(T >= 40.0 && T <= 240.0)) return;
+            for (const TempoCandidate& q : ti.cands) if (std::fabs(q.bpm / T - 1.0) < 0.03) return;
+            ti.cands.push_back({T, (float)std::max(0.0, std::min(1.0, s))});
+        };
+        add(bpm, 1.0);
+        add(bpm < 120.0 ? bpm * 2.0 : bpm * 0.5, octScore);
+        const double sb = std::max(1e-6, fams[bestFam].score);
+        for (size_t i = 0; i < fams.size(); ++i) {
+            if (i == bestFam) continue;
+            // The octave of this family nearest the winner, kept inside 60..200 BPM.
+            double T = 60.0 / fams[i].P;
+            while (T * 2.0 < bpm * 1.4142 && T * 2.0 <= 200.5) T *= 2.0;
+            while (T > bpm * 1.4142 && T * 0.5 >= 59.5) T *= 0.5;
+            while (T > 200.5) T *= 0.5;
+            const double s = std::max(0.0, fams[i].score) / sb;
+            if (s >= 0.15) add(T, 0.95 * s);
+        }
+        std::stable_sort(ti.cands.begin() + 1, ti.cands.end(), [](const TempoCandidate& x, const TempoCandidate& y) { return x.score > y.score; });
+        if (ti.cands.size() > 4) ti.cands.resize(4);
     }
 
     // 6. Downbeat: the beat class (mod 4) with kick but without snare, nudged towards the class of the
@@ -854,46 +1045,69 @@ inline TempoInfo estimateTempo(const OdfData& d, const Onsets& on, double length
 
 // ---------------------------------------------------------------------------------------------------------
 // Key detection.
+//
+// Pitch content comes from spectral peaks of 0.74 s frames at ~11 kHz (parabolic interpolation, global
+// tuning estimate, square-root compressed so one loud note does not swamp the rest, and peaks that sit on
+// the 3rd / 5th / 6th / 7th harmonic of a stronger lower peak attenuated, since they would add a fifth, a
+// major third or a minor seventh above every note). Profile correlation alone sees relative major and minor
+// as near ties (same scale) and confuses a dorian or mixolydian loop with the key a fifth away, so the
+// decision also weighs tonic evidence: the bass (pitch classes below ~250 Hz and the lowest clear note of
+// every frame), the chord on every bar (triad template on the bar's chroma with the strong-beat half
+// weighted up, plus its bass) and the first and last chord of the file (phrases start and end on the
+// tonic). See keyScores for how these are combined.
 
-struct KeyInfo { int key = 0; bool minor = false; float conf = 0; float chroma[12] = {}; double tuningCents = 0; };
+struct KeyFeatures {
+    double chroma[12] = {};  // pitch-class energy of the whole file (tuning corrected), sums to 1
+    double bass[12] = {};    // the same below ~250 Hz, sums to 1 (all 0 without bass)
+    double lowest[12] = {};  // lowest clear note of every frame, weighted by frame level, sums to 1
+    double roots[24] = {};   // chord of every bar (0..11 major triads, 12..23 minor), weighted by level, sums to 1
+    double edge[24] = {};    // first and last chord of the file, 0.5 each
+    double tuningCents = 0;
+    bool valid = false;
+};
 
-inline double pearson(const double* x, const double* p, int rot) {
-    double mx = 0, mp = 0;
-    for (int i = 0; i < 12; ++i) { mx += x[i]; mp += p[i]; }
-    mx /= 12; mp /= 12;
-    double sxy = 0, sxx = 0, spp = 0;
-    for (int i = 0; i < 12; ++i) {
-        const double a = x[(i + rot) % 12] - mx, b = p[i] - mp;
-        sxy += a * b; sxx += a * a; spp += b * b;
-    }
-    return (sxx > 0 && spp > 0) ? sxy / std::sqrt(sxx * spp) : 0.0;
-}
+struct KeyInfo {
+    int key = 0;
+    bool minor = false;
+    float conf = 0;
+    double tuningCents = 0;
+    std::vector<KeyCandidate> cands;
+};
 
-inline KeyInfo estimateKey(const std::vector<float>& y, double sr) {
-    KeyInfo ki;
-    // Down to ~11 kHz: plenty for chroma up to ~2.5 kHz and cheap long frames.
+struct SpecPeak { float midi; float w; int frame; };
+
+struct PeakFrames {
+    std::vector<SpecPeak> peaks;  // w is relative to the loudest bin of its frame
+    std::vector<float> level;     // loudest bin per frame (0 = silent frame)
+    double hopSec = 0, frameSec = 0;
+};
+
+// Spectral peaks (50 Hz..2.5 kHz) of `y` (the ~22 kHz working signal) in 0.74 s frames, 1/4 overlap.
+inline PeakFrames spectralPeaks(const std::vector<float>& y, double sr) {
+    PeakFrames pf;
     const int f2 = sr > 16000 ? 2 : 1;
     const std::vector<float> z = decimate(y.data(), (int)y.size(), f2, 1.0f);
     const double sr3 = sr / f2;
     const int N = nextPow2((int)(0.7 * sr3));
     const int hop = N / 4;
     const int n = (int)z.size();
-    if (n < N / 4) return ki;
+    pf.hopSec = hop / sr3;
+    pf.frameSec = N / sr3;
+    if (n < N / 4) return pf;
     const int nb = N / 2 + 1;
     const double binHz = sr3 / N;
     const int kMin = std::max(2, (int)std::floor(50.0 / binHz));
     const int kMax = std::min(nb - 3, (int)std::ceil(2500.0 / binHz));
-    if (kMax <= kMin + 4) return ki;
+    if (kMax <= kMin + 4) return pf;
 
     std::vector<float> win((size_t)N);
     for (int i = 0; i < N; ++i) win[(size_t)i] = (float)(0.5 - 0.5 * std::cos(2.0 * kPi * i / N));
     RealFFT fft(N);
     std::vector<float> buf((size_t)N), mag((size_t)nb), lm((size_t)nb);
     std::vector<double> csum((size_t)nb + 1);
-    struct Peak { float midi; float w; int frame; };
-    std::vector<Peak> peaks, framePeaks;
-    peaks.reserve(1 << 16);
+    pf.peaks.reserve(1 << 16);
     const int frames = std::max(1, (n - N) / hop + 1);
+    pf.level.assign((size_t)frames, 0.f);
     for (int fi = 0; fi < frames; ++fi) {
         const int start = fi * hop;
         for (int i = 0; i < N; ++i) {
@@ -904,7 +1118,7 @@ inline KeyInfo estimateKey(const std::vector<float>& y, double sr) {
         float fmax = 0;
         for (int k = kMin; k <= kMax; ++k) fmax = std::max(fmax, mag[(size_t)k]);
         if (fmax < 1e-3f) continue;
-        framePeaks.clear();
+        pf.level[(size_t)fi] = fmax;
         csum[0] = 0;
         for (int k = 0; k < nb; ++k) csum[(size_t)k + 1] = csum[(size_t)k] + mag[(size_t)k];
         for (int k = kMin; k <= kMax; ++k) lm[(size_t)k] = std::log(mag[(size_t)k] + 1e-9f);
@@ -922,71 +1136,215 @@ inline KeyInfo estimateKey(const std::vector<float>& y, double sr) {
             const float delta = (std::fabs(den) > 1e-9f) ? 0.5f * (l0 - l2) / den : 0.f;
             const double freq = (k + std::max(-0.5f, std::min(0.5f, delta))) * binHz;
             if (freq < 50.0) continue;
-            const float midi = (float)(69.0 + 12.0 * std::log2(freq / 440.0));
-            framePeaks.push_back({midi, v, fi});
-        }
-        for (size_t j = 0; j < framePeaks.size(); ++j) {
-            const float w = framePeaks[j].w / fmax;
-            peaks.push_back({framePeaks[j].midi, w, framePeaks[j].frame});
+            pf.peaks.push_back({(float)(69.0 + 12.0 * std::log2(freq / 440.0)), v / fmax, fi});
         }
     }
-    if (peaks.empty()) return ki;
+    return pf;
+}
 
+inline std::vector<float> harmonicAttenuation(const PeakFrames& pf) {
+    std::vector<float> att(pf.peaks.size(), 1.f);
+    static const float kHarm[4] = {19.0196f, 27.8631f, 31.0196f, 33.6883f};  // semitones up to harmonics 3, 5, 6, 7
+    size_t a = 0;
+    while (a < pf.peaks.size()) {
+        size_t b = a;
+        while (b < pf.peaks.size() && pf.peaks[b].frame == pf.peaks[a].frame) ++b;
+        // Peaks of a frame are in ascending frequency order, so each lookup is a binary search.
+        auto lo = pf.peaks.begin() + (ptrdiff_t)a, hi = pf.peaks.begin() + (ptrdiff_t)b;
+        for (size_t i = a; i < b; ++i) {
+            float strongest = 0;
+            for (float h : kHarm) {
+                const float target = pf.peaks[i].midi - h;
+                auto it = std::lower_bound(lo, hi, target - 0.35f, [](const SpecPeak& p, float v) { return p.midi < v; });
+                for (; it != hi && it->midi < target + 0.35f; ++it) strongest = std::max(strongest, it->w);
+            }
+            if (strongest > 0) att[i] = (float)(1.0 - 0.8 * std::min(1.0, (double)strongest / pf.peaks[i].w));
+        }
+        a = b;
+    }
+    return att;
+}
+
+// Key evidence from the tonal signal's peaks and (optionally) a separate bass signal's peaks. `barSec` and
+// `barPhase` place the bars (barSec <= 0: fixed 2 s segments).
+inline KeyFeatures keyFeatures(const PeakFrames& tonal, const PeakFrames* bassPf, double barSec, double barPhase) {
+    KeyFeatures kf;
+    if (tonal.peaks.empty()) return kf;
     // Tuning: circular mean of deviations from the equal-tempered grid.
     double cs = 0, sn = 0;
-    for (const auto& p : peaks) {
+    for (const auto& p : tonal.peaks) {
         const double dev = p.midi - std::round(p.midi);
         cs += p.w * std::cos(2 * kPi * dev);
         sn += p.w * std::sin(2 * kPi * dev);
     }
     const double tuning = std::atan2(sn, cs) / (2 * kPi);  // semitones in (-0.5, 0.5]
-    ki.tuningCents = tuning * 100.0;
+    kf.tuningCents = tuning * 100.0;
+    const PeakFrames& bp = bassPf && !bassPf->peaks.empty() ? *bassPf : tonal;
 
-    double chroma[12] = {}, bass[12] = {};
-    for (const auto& p : peaks) {
-        const double m = p.midi - tuning;
+    const int frames = (int)tonal.level.size();
+    float gl = 0;
+    for (float v : tonal.level) gl = std::max(gl, v);
+    float gb = 0;
+    for (float v : bp.level) gb = std::max(gb, v);
+    if (!(gl > 0)) return kf;
+    auto frameW = [](const PeakFrames& p, int f, float g) {
+        return (f >= 0 && f < (int)p.level.size() && g > 0) ? std::sqrt(p.level[(size_t)f] / g) : 0.f;
+    };
+    auto pcOf = [&](float midi, double& w) {
+        const double m = midi - tuning;
         const double dev = std::fabs(m - std::round(m));
-        const double w = p.w * (1.0 - std::min(1.0, dev / 0.5) * 0.6);  // de-weight peaks between semitones
-        const int pc = (((int)std::lround(m)) % 12 + 12) % 12;
-        chroma[pc] += w;
-        if (m < 55.0) bass[pc] += w;  // below ~G3
-    }
-    double cTot = 0, bTot = 0;
-    for (int i = 0; i < 12; ++i) { cTot += chroma[i]; bTot += bass[i]; }
-    if (cTot <= 0) return ki;
-    double x[12];
-    for (int i = 0; i < 12; ++i) x[i] = chroma[i] / cTot + (bTot > 0 ? 0.35 * bass[i] / bTot : 0.0);
-    double xt = 0;
-    for (int i = 0; i < 12; ++i) xt += x[i];
-    for (int i = 0; i < 12; ++i) { x[i] /= xt; ki.chroma[i] = (float)x[i]; }
+        w *= 1.0 - std::min(1.0, dev / 0.5) * 0.6;  // de-weight peaks between semitones
+        return (((int)std::lround(m)) % 12 + 12) % 12;
+    };
 
-    static const double kkMaj[12] = {6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88};
-    static const double kkMin[12] = {6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17};
-    static const double tpMaj[12] = {0.748, 0.060, 0.488, 0.082, 0.670, 0.460, 0.096, 0.715, 0.104, 0.366, 0.057, 0.400};
-    static const double tpMin[12] = {0.712, 0.084, 0.474, 0.618, 0.049, 0.460, 0.105, 0.747, 0.404, 0.067, 0.133, 0.330};
-    // Diatonic fit: share of chroma energy inside the key's 7-note scale (major / natural minor). It
-    // penalises keys whose characteristic notes are absent, which the linear correlations barely do.
-    static const int majScale[7] = {0, 2, 4, 5, 7, 9, 11};
-    static const int minScale[7] = {0, 2, 3, 5, 7, 8, 10};
-    double sc[24], corr[24];
-    for (int k = 0; k < 12; ++k) {
-        double inMaj = 0, inMin = 0;
-        for (int q = 0; q < 7; ++q) { inMaj += x[(k + majScale[q]) % 12]; inMin += x[(k + minScale[q]) % 12]; }
-        corr[k] = 0.5 * (pearson(x, kkMaj, k) + pearson(x, tpMaj, k));
-        corr[12 + k] = 0.5 * (pearson(x, kkMin, k) + pearson(x, tpMin, k));
-        sc[k] = corr[k] + 2.0 * inMaj;
-        sc[12 + k] = corr[12 + k] + 2.0 * inMin;
+    // Harmonic suppression: a peak sitting where the 3rd, 5th, 6th or 7th harmonic of a stronger lower
+    // peak of the same frame would be is mostly that harmonic (it would add a fifth, a major third or a
+    // minor seventh above every note), so it is attenuated in proportion to the lower peak's strength.
+    const std::vector<float> hAtt = harmonicAttenuation(tonal);
+    std::vector<float> fc((size_t)frames * 12, 0.f), fb((size_t)frames * 12, 0.f);
+    for (size_t pi = 0; pi < tonal.peaks.size(); ++pi) {
+        const SpecPeak& p = tonal.peaks[pi];
+        double w = std::sqrt((double)p.w) * hAtt[pi];  // compressed: one loud note must not swamp the rest
+        const int pc = pcOf(p.midi, w);
+        kf.chroma[pc] += w;
+        fc[(size_t)p.frame * 12 + (size_t)pc] += (float)(w * frameW(tonal, p.frame, gl));
     }
-    int best = 0;
-    for (int i = 1; i < 24; ++i) if (sc[i] > sc[best]) best = i;
-    double second = -2;
-    for (int i = 0; i < 24; ++i) if (i != best) second = std::max(second, sc[i]);
+    // Bass: energy below ~250 Hz and the lowest clear note per frame.
+    std::vector<float> lowMidi(bp.level.size(), 1e9f);
+    for (const auto& p : bp.peaks) {
+        if (p.w >= 0.1f && p.midi < 71.5f) lowMidi[(size_t)p.frame] = std::min(lowMidi[(size_t)p.frame], p.midi);
+        if (p.midi >= 59.5f) continue;
+        double w = p.w;
+        const int pc = pcOf(p.midi, w);
+        const double fw = frameW(bp, p.frame, gb);
+        kf.bass[pc] += w * fw;
+        if (p.frame < frames) fb[(size_t)p.frame * 12 + (size_t)pc] += (float)(w * fw);
+    }
+    for (size_t f = 0; f < lowMidi.size(); ++f) {
+        if (lowMidi[f] > 1e8f) continue;
+        double w = 1.0;
+        const int pc = pcOf(lowMidi[f], w);
+        kf.lowest[pc] += w * frameW(bp, (int)f, gb);
+    }
+
+    // Chord per segment (bar), strong-beat half weighted up.
+    const double seg = barSec > 0.5 ? barSec : 2.0;
+    double s0 = barPhase - std::ceil(barPhase / seg) * seg;
+    const double centre0 = 0.5 * tonal.frameSec;
+    const double lenSec = (frames - 1) * tonal.hopSec + tonal.frameSec;
+    struct Seg { int chord; double w; };
+    std::vector<Seg> segs;
+    for (double s = s0; s < lenSec; s += seg) {
+        double sc[12] = {}, sb[12] = {}, lw = 0;
+        int cnt = 0;
+        const int f0 = std::max(0, (int)std::ceil((s - centre0) / tonal.hopSec));
+        for (int f = f0; f < frames; ++f) {
+            const double tc = centre0 + f * tonal.hopSec;
+            if (tc >= s + seg) break;
+            const double g = tc < s + 0.5 * seg ? 1.5 : 1.0;
+            for (int q = 0; q < 12; ++q) { sc[q] += g * fc[(size_t)f * 12 + (size_t)q]; sb[q] += fb[(size_t)f * 12 + (size_t)q]; }
+            lw += frameW(tonal, f, gl);
+            ++cnt;
+        }
+        double tc = 0, tb = 0;
+        for (int q = 0; q < 12; ++q) { tc += sc[q]; tb += sb[q]; }
+        if (cnt == 0 || tc <= 0) { segs.push_back({-1, 0.0}); continue; }
+        double best = -1e9;
+        int bc = -1;
+        for (int r = 0; r < 12; ++r)
+            for (int q = 0; q < 2; ++q) {
+                const int third = q ? 3 : 4, other = q ? 4 : 3;
+                const double v = (sc[r] + sc[(r + third) % 12] + sc[(r + 7) % 12] - 0.5 * sc[(r + other) % 12]) / tc +
+                                 (tb > 0 ? 0.5 * sb[r] / tb : 0.0);
+                if (v > best) { best = v; bc = r + 12 * q; }
+            }
+        segs.push_back({bc, lw / cnt});
+    }
+    double wMax = 0;
+    for (const Seg& s : segs) wMax = std::max(wMax, s.w);
+    int firstSeg = -1, lastSeg = -1;
+    for (size_t i = 0; i < segs.size(); ++i) {
+        if (segs[i].chord < 0 || segs[i].w < 0.3 * wMax) continue;
+        kf.roots[segs[i].chord] += segs[i].w;
+        if (firstSeg < 0) firstSeg = (int)i;
+        lastSeg = (int)i;
+    }
+    if (firstSeg >= 0) { kf.edge[segs[(size_t)firstSeg].chord] += 0.5; kf.edge[segs[(size_t)lastSeg].chord] += 0.5; }
+
+    auto norm = [](double* v, int n) {
+        double t = 0;
+        for (int i = 0; i < n; ++i) t += v[i];
+        if (t > 0) for (int i = 0; i < n; ++i) v[i] /= t;
+    };
+    norm(kf.chroma, 12); norm(kf.bass, 12); norm(kf.lowest, 12); norm(kf.roots, 24);
+    double ct = 0;
+    for (double v : kf.chroma) ct += v;
+    kf.valid = ct > 0;
+    return kf;
+}
+
+// Score of each key (0..11 major, 12..23 minor): a linear model over the evidence expressed relative to the
+// candidate tonic (chroma, bass and lowest-note profiles, the chord-per-bar distribution and the first and
+// last chords, each rotated so index 0 is the tonic). It starts from Faraldo's EDMA profile for the chroma
+// part and was fitted (softmax over the 24 keys, L2 pull towards that start, major and minor examples
+// weighted equally) on the development half of tests/eval; the held-out half was not used. Read as
+// profiles the weights are musical: tonic and fifth in the chroma, the tonic as lowest note, the
+// diatonic chords (ii, iii, IV, V, vi in major; III, iv, v, VI, VII in minor) and a tonic first or last
+// chord. Compared with plain profile correlation on that data (v1.0.0 averaged Krumhansl-Kessler and
+// Temperley), it mostly removes relative major/minor errors.
+inline void keyScores(const KeyFeatures& kf, double out[24]) {
+    static const double kWMaj[84] = {
+         6.10, -2.73, -0.10, -1.35,  2.30,  0.78, -2.00,  4.43, -3.17, -1.24, -1.74, -1.38,  // chroma
+        -0.88, -1.26, -0.39,  0.64,  0.23, -0.35,  0.23,  1.34,  0.01,  0.30,  0.22, -0.67,  // bass
+         2.18, -0.06,  0.18, -0.79, -0.05, -0.76, -0.08,  0.30, -0.91,  0.39,  0.17, -0.45,  // lowest note
+         0.64, -0.63,  0.19, -0.51, -0.99,  0.88,  0.14,  0.54,  0.13, -0.38,  1.50, -0.37,  // major chords
+        -0.40, -0.50, -0.68, -0.50,  1.03, -0.73,  0.16,  0.07, -0.21,  1.34, -0.41, -0.43,  // minor chords
+         1.73, -0.60, -0.72, -0.65, -1.03,  0.78,  0.57,  0.47, -0.29, -0.29,  0.59, -0.42,  // first/last major
+         1.26, -0.49, -1.31, -0.56,  1.20, -0.35,  0.25,  0.44,  0.06, -0.41, -0.35,  0.04,  // first/last minor
+    };
+    static const double kWMin[84] = {
+         5.89, -2.42, -0.37,  2.09, -2.02, -0.16, -1.98,  3.45, -0.79, -2.60,  0.85, -1.81,  // chroma
+        -0.27, -0.77, -0.08,  0.37, -0.33,  0.33,  0.09,  1.35,  0.28, -0.74,  0.70, -0.36,  // bass
+         1.29, -0.73, -0.98, -0.16, -1.08,  0.08,  0.07, -0.23,  0.99, -0.91,  1.04,  0.52,  // lowest note
+        -0.09, -0.70, -0.18,  0.56, -0.61, -0.18, -0.31, -0.25,  0.75, -0.35,  0.53, -0.31,  // major chords
+         1.57, -0.06,  0.09, -0.26, -0.22,  0.41, -0.17,  0.93, -0.23, -0.41, -0.52,  0.12,  // minor chords
+         1.30, -0.41, -0.39, -0.22, -0.50,  0.18, -0.44,  0.45,  0.49, -0.59,  0.05, -0.05,  // first/last major
+         0.99, -0.30,  0.18,  0.35, -0.18,  0.57, -0.22,  0.25, -0.37, -0.76, -0.23, -0.05,  // first/last minor
+    };
+    const double kBias[2] = {-0.15, 0.15};
+    for (int k = 0; k < 24; ++k) {
+        const int t = k % 12, m = k / 12;
+        const double* w = m ? kWMin : kWMaj;
+        double s = kBias[m];
+        for (int i = 0; i < 12; ++i) {
+            const int pc = (t + i) % 12;
+            s += w[i] * kf.chroma[pc] + w[12 + i] * kf.bass[pc] + w[24 + i] * kf.lowest[pc] + w[36 + i] * kf.roots[pc] +
+                 w[48 + i] * kf.roots[12 + pc] + w[60 + i] * kf.edge[pc] + w[72 + i] * kf.edge[12 + pc];
+        }
+        out[k] = s;
+    }
+}
+
+inline KeyInfo decideKey(const KeyFeatures& kf) {
+    KeyInfo ki;
+    if (!kf.valid) return ki;
+    ki.tuningCents = kf.tuningCents;
+    double sc[24];
+    keyScores(kf, sc);
+    int order[24];
+    std::iota(order, order + 24, 0);
+    std::sort(order, order + 24, [&](int a, int b) { return sc[a] > sc[b]; });
+    const int best = order[0];
     ki.key = best % 12;
     ki.minor = best >= 12;
-    // Confidence: profile correlation of the winner, scaled down when the runner-up (usually the relative
-    // major/minor) is close.
-    const double margin = sc[best] - second;
-    ki.conf = clamp01((float)(std::max(0.0, corr[best]) * std::min(1.0, 0.4 + margin * 4.0)));
+    // Confidence: the winner's probability under the model (softmax over the 24 keys). Candidates: the
+    // three most probable keys, each with its probability relative to the winner's. (Forcing the relative
+    // major/minor into the list was tried: on the evaluation set it covered the true key less often, 75 %
+    // against 82 % for the plain top three, since the model rarely leaves the relative key as runner-up.)
+    double z = 0;
+    for (int i = 0; i < 24; ++i) z += std::exp(sc[i] - sc[best]);
+    ki.conf = clamp01((float)(1.0 / z));
+    for (int i = 0; i < 3; ++i) ki.cands.push_back({order[i] % 12, order[i] >= 12, (float)std::exp(sc[order[i]] - sc[best])});
     return ki;
 }
 
@@ -1001,47 +1359,118 @@ inline double firstSoundSec(const float* x, int n, double sr) {
 
 }  // namespace detail
 
-// ---------------------------------------------------------------------------------------------------------
-inline Result analyse(const float* mono, int numSamples, double sampleRate) {
-    Result r;
-    if (!mono || numSamples <= 0 || !(sampleRate > 0)) return r;
+namespace detail {
+
+// Peak-normalised (or scaled by `gainIn` when > 0), decimated working signal plus its ODF and onsets.
+struct Prepared {
+    std::vector<float> y;
+    double sr = 0;
+    float gain = 0;
+    OdfData d;
+    Onsets on;
+};
+
+inline float peakOf(const float* x, int n) {
     float peak = 0;
-    for (int i = 0; i < numSamples; ++i) {
-        const float a = std::fabs(mono[i]);
+    for (int i = 0; i < n; ++i) {
+        const float a = std::fabs(x[i]);
         if (a > peak && std::isfinite(a)) peak = a;
     }
-    if (peak < 1e-7f) return r;
-    const float gain = std::min(1.0f / peak, 1e4f);
-    const int dec = std::max(1, (int)std::lround(sampleRate / 22050.0));
-    const std::vector<float> y = detail::decimate(mono, numSamples, dec, gain);
-    const double sr2 = sampleRate / dec;
+    return peak;
+}
 
-    detail::OdfData d = detail::computeOdf(y, sr2);
-    detail::Onsets on = detail::detectOnsets(d, y);
+inline double rmsOf(const float* x, int n) {
+    double s = 0;
+    for (int i = 0; i < n; ++i) if (std::isfinite(x[i])) s += (double)x[i] * x[i];
+    return n > 0 ? std::sqrt(s / n) : 0.0;
+}
+
+inline bool prepare(const float* x, int n, double sampleRate, Prepared& p, bool withOnsets = true) {
+    const float peak = peakOf(x, n);
+    if (peak < 1e-7f) return false;
+    p.gain = std::min(1.0f / peak, 1e4f);
+    p.y = toWorkingRate(x, n, sampleRate, p.gain);
+    p.sr = kWorkRate;
+    if (!withOnsets) return true;
+    p.d = computeOdf(p.y, p.sr);
+    p.on = detectOnsets(p.d, p.y);
     // Map ODF frame centres onto attack-foot times for grid work.
-    {
-        std::vector<double> offs;
-        for (size_t i = 0; i < on.t.size(); ++i) offs.push_back(on.t[i] - on.frame[i] * (double)d.hop / d.sr);
-        if (!offs.empty()) {
-            std::nth_element(offs.begin(), offs.begin() + (ptrdiff_t)(offs.size() / 2), offs.end());
-            d.offset = offs[offs.size() / 2];
-        }
+    std::vector<double> offs;
+    for (size_t i = 0; i < p.on.t.size(); ++i) offs.push_back(p.on.t[i] - p.on.frame[i] * (double)p.d.hop / p.d.sr);
+    if (!offs.empty()) {
+        std::nth_element(offs.begin(), offs.begin() + (ptrdiff_t)(offs.size() / 2), offs.end());
+        p.d.offset = offs[offs.size() / 2];
     }
-    r.onsetsSec = on.t;
-    r.onsetStrength = on.s;
+    return true;
+}
 
+// Internal values exposed for offline tuning (tests/eval).
+struct AnalysisDebug {
+    std::vector<TempoFamily> families;
+    KeyFeatures key;
+};
+
+inline Result analyseImpl(const float* mix, const float* drums, const float* bass, const float* harmonic, int numSamples,
+                          double sampleRate, AnalysisDebug* dbg) {
+    Result r;
+    if (!mix || numSamples <= 0 || !(sampleRate > 0)) return r;
+    Prepared pm;
+    if (!prepare(mix, numSamples, sampleRate, pm)) return r;
+    // A stem counts when it carries real energy (above -30 dB re the mix); separation leaves faint
+    // residue in empty stems that must not drive anything.
+    const double mixRms = rmsOf(mix, numSamples);
+    auto usable = [&](const float* s) { return s && rmsOf(s, numSamples) >= 0.03 * mixRms; };
+
+    // Rhythm: onsets, tempo and grid from the drums when there are drums, else from the mix.
+    Prepared pdr;
+    const Prepared* rh = &pm;
+    if (usable(drums) && prepare(drums, numSamples, sampleRate, pdr) && pdr.on.t.size() >= 8) rh = &pdr;
+    r.onsetsSec = rh->on.t;
+    r.onsetStrength = rh->on.s;
     const double len = numSamples / sampleRate;
-    const double fs = detail::firstSoundSec(mono, numSamples, sampleRate);
-    const detail::TempoInfo ti = detail::estimateTempo(d, on, len, fs);
+    const double fs = firstSoundSec(mix, numSamples, sampleRate);
+    TempoInfo ti = estimateTempo(rh->d, rh->on, len, fs, dbg ? &dbg->families : nullptr);
     r.bpm = ti.bpm;
     r.firstBeatSec = ti.firstBeat;
     r.bpmConfidence = ti.conf;
+    r.tempoCandidates = std::move(ti.cands);
 
-    const detail::KeyInfo ki = detail::estimateKey(y, sr2);
+    // Key: chroma from the pitched parts (harmonic + bass stems, else the mix), bass evidence from the
+    // bass stem when there is one. Stems are scaled with the mix gain so their levels stay comparable.
+    const bool hasBass = usable(bass), hasHarm = usable(harmonic);
+    PeakFrames tonalPf, bassPf;
+    if (hasHarm) {
+        std::vector<float> t(harmonic, harmonic + numSamples);
+        if (hasBass) for (int i = 0; i < numSamples; ++i) t[(size_t)i] += bass[i];
+        tonalPf = spectralPeaks(toWorkingRate(t.data(), numSamples, sampleRate, pm.gain), pm.sr);
+    } else {
+        tonalPf = spectralPeaks(pm.y, pm.sr);
+    }
+    if (hasBass) bassPf = spectralPeaks(toWorkingRate(bass, numSamples, sampleRate, pm.gain), pm.sr);
+    const double bar = (r.bpm > 0 && r.bpmConfidence >= 0.3f) ? 240.0 / r.bpm : 0.0;
+    const KeyFeatures kf = keyFeatures(tonalPf, hasBass ? &bassPf : nullptr, bar, r.firstBeatSec);
+    if (dbg) dbg->key = kf;
+    KeyInfo ki = decideKey(kf);
     r.key = ki.key;
     r.minor = ki.minor;
     r.keyConfidence = ki.conf;
+    r.keyCandidates = std::move(ki.cands);
     return r;
+}
+
+}  // namespace detail
+
+// ---------------------------------------------------------------------------------------------------------
+inline Result analyse(const float* mono, int numSamples, double sampleRate) {
+    return detail::analyseImpl(mono, nullptr, nullptr, nullptr, numSamples, sampleRate, nullptr);
+}
+
+// Stem-aware analysis: tempo, grid and onsets from the drums, key from the pitched stems with the bass
+// stem as tonic evidence. Any stem may be null (or near silent); the mix stands in for what is missing.
+// All buffers hold numSamples mono samples at sampleRate.
+inline Result analyseWithStems(const float* mixMono, const float* drumsMono, const float* bassMono, const float* harmonicMono,
+                               int numSamples, double sampleRate) {
+    return detail::analyseImpl(mixMono, drumsMono, bassMono, harmonicMono, numSamples, sampleRate, nullptr);
 }
 
 inline double snapToTransient(const Result& r, double timeSec, double windowSec = 0.03) {

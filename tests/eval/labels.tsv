@@ -1,0 +1,1381 @@
+# split	root	path	bpm	key	kind	source
+# roots: music = ~/Music, apple = /Library/Audio/Apple Loops, mix = ' + '-joined Apple Loops paths
+dev	apple	Apple/01 Hip Hop/Afloat Pad.caf	98	Cm	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Afloat Sub Bass.caf	98	Cm	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Afloat Synth Arp.caf	98	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Afloat Synth Lead.caf	98	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Altered State Arpeggio.caf	67	Fm	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Altered State Beat 01.caf	67	-	loop-drums	loopmeta
+held	apple	Apple/01 Hip Hop/Ambition Electric Piano.caf	80	C#m	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Ascension Arp 02.caf	55	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Ascension Beat.caf	55	-	loop-drums	loopmeta
+held	apple	Apple/01 Hip Hop/Ascension Sub Bass.caf	55	C#m	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Barricade Arpeggio.caf	78	A#m	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Be Together Piano.caf	78	C#m	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Bell Ringer Arpeggio.caf	68	Fm	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Bell Ringer Beat.caf	68	-	loop-drums	loopmeta
+dev	apple	Apple/01 Hip Hop/Brick Wall Beat.caf	73	-	loop-drums	loopmeta
+held	apple	Apple/01 Hip Hop/Brooklyn Noir Flute.caf	92	A#m	loop-horn-wind	loopmeta
+held	apple	Apple/01 Hip Hop/Brooklyn Noir Swag Bass.caf	92	A#m	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Cali Swag Choir.caf	89	Em	loop-vocals	loopmeta
+dev	apple	Apple/01 Hip Hop/Caution Synth.caf	84	Em	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/City Lights Beat.caf	75	-	loop-drums	loopmeta
+dev	apple	Apple/01 Hip Hop/City Lights Brass.caf	75	G#m	loop-horn-wind	loopmeta
+held	apple	Apple/01 Hip Hop/City Nights Bass.caf	97	Gm	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/City Nights Brass 01.caf	97	Gm	loop-horn-wind	loopmeta
+held	apple	Apple/01 Hip Hop/City Nights Brass 02.caf	97	Gm	loop-horn-wind	loopmeta
+dev	apple	Apple/01 Hip Hop/City Nights Electric Piano.caf	97	Gm	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/City Nights Strings.caf	97	Gm	loop-strings	loopmeta
+held	apple	Apple/01 Hip Hop/City Nights Trumpet Lead.caf	97	Gm	loop-horn-wind	loopmeta
+held	apple	Apple/01 Hip Hop/City Nights Violin Lead.caf	97	Gm	loop-strings	loopmeta
+held	apple	Apple/01 Hip Hop/City of Angeles Choir.caf	90	Gm	loop-vocals	loopmeta
+dev	apple	Apple/01 Hip Hop/Concrete Jungle Beat 01.caf	75	-	loop-drums	loopmeta
+held	apple	Apple/01 Hip Hop/Crossroads Beat.caf	89	-	loop-drums	loopmeta
+dev	apple	Apple/01 Hip Hop/Crossroads Bells.caf	89	D#m	loop-mallets	loopmeta
+held	apple	Apple/01 Hip Hop/Crossroads Sub Bass.caf	89	D#m	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Crossroads Synth 01.caf	89	D#m	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Crossroads Synth 02.caf	89	D#m	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Deal Breaker Mallets.caf	72	Fm	loop-mallets	loopmeta
+dev	apple	Apple/01 Hip Hop/Deep Freeze Beat 02.caf	74	-	loop-drums	loopmeta
+dev	apple	Apple/01 Hip Hop/Dirty Sub Bass.caf	71.5	D	loop-bass	loopmeta
+dev	apple	Apple/01 Hip Hop/Dirty Synth.caf	71.5	D	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Distant Memories Beat.caf	66.5	-	loop-drums	loopmeta
+held	apple	Apple/01 Hip Hop/Distant Memories Brass.caf	66.5	A#m	loop-horn-wind	loopmeta
+held	apple	Apple/01 Hip Hop/Distant Memories Piano.caf	66.5	A#m	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Distant Memories Sub Bass.caf	66.5	A#m	loop-bass	loopmeta
+dev	apple	Apple/01 Hip Hop/Double Vision Gated Synth.caf	190	Am	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Dub Deep Beat.caf	99	-	loop-drums	loopmeta
+held	apple	Apple/01 Hip Hop/Dub Deep Sub Bass.caf	99	A#m	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Dub Deep Synth.caf	99	A#m	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Dusk Drive Pluck.caf	104	Am	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Dusk Drive Sub Bass.caf	104	Am	loop-bass	loopmeta
+dev	apple	Apple/01 Hip Hop/Early Days Beat.caf	72	-	loop-drums	loopmeta
+held	apple	Apple/01 Hip Hop/Early Days Piano.caf	72	A#m	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Early Days Synth Lead.caf	72	A#m	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Empire State Harp.caf	88	B	loop-strings	loopmeta
+held	apple	Apple/01 Hip Hop/Empire State Horns.caf	88	Bm	loop-horn-wind	loopmeta
+dev	apple	Apple/01 Hip Hop/Empire State Piano.caf	88	Bm	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Epoch Ambient Piano.caf	61	C#m	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Epoch Beat.caf	61	-	loop-drums	loopmeta
+dev	apple	Apple/01 Hip Hop/Epoch Delay Synth.caf	61	C#m	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Epoch Noise Synth.caf	61	C#m	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Epoch Orchestra Hits.caf	61	C#m	loop-strings	loopmeta
+dev	apple	Apple/01 Hip Hop/Epoch Sub Bass.caf	61	C#m	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Epoch Synth Arp.caf	61	C#m	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Epoch Synth Lead.caf	61	C#m	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Euphoria Pad.caf	65	D	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Falling Rain Beat.caf	80	-	loop-drums	loopmeta
+dev	apple	Apple/01 Hip Hop/Falling Rain String Synth.caf	80	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Fantasy Sub Bass.caf	68.5	Gm	loop-bass	loopmeta
+dev	apple	Apple/01 Hip Hop/Fantasy Synth 01.caf	68.5	Gm	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Fantasy Synth 02.caf	68.5	Gm	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Fantasy Synth 03.caf	68.5	Gm	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Final Straw Beat.caf	81	-	loop-drums	loopmeta
+held	apple	Apple/01 Hip Hop/Find Strength Piano.caf	73	C	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Find Strength Sub Bass.caf	73	C	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Flashback Choir.caf	81	G#m	loop-vocals	loopmeta
+dev	apple	Apple/01 Hip Hop/Four Oh Five Beat.caf	98	-	loop-drums	loopmeta
+held	apple	Apple/01 Hip Hop/Four Oh Five Clav.caf	98	Am	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Full Moon Piano.caf	77	F#m	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Full Moon Sub Bass.caf	77	Em	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Full Moon Synth Lead.caf	77	F#m	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Funhouse Beat.caf	87	-	loop-drums	loopmeta
+held	apple	Apple/01 Hip Hop/Funk Era Brass.caf	94	Cm	loop-horn-wind	loopmeta
+dev	apple	Apple/01 Hip Hop/Funk Era Piano.caf	94	Cm	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Ghostly Steel Drum.caf	100	C#m	loop-mallets	loopmeta
+dev	apple	Apple/01 Hip Hop/Ghostly Sub Bass.caf	100	C#m	loop-bass	loopmeta
+dev	apple	Apple/01 Hip Hop/Ghostly Synth Arp.caf	100	C#m	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Ghostly Synth Bass.caf	100	C#m	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Ghostly Synth Lead.caf	100	C#m	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Golden Age Beat.caf	73	-	loop-drums	loopmeta
+held	apple	Apple/01 Hip Hop/Golden Age Piano.caf	73	D#m	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Got Game Blip Synth.caf	75	Fm	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Gridlock Beat.caf	88	-	loop-drums	loopmeta
+dev	apple	Apple/01 Hip Hop/Gridlock Sitar.caf	88	G#m	loop-strings	loopmeta
+dev	apple	Apple/01 Hip Hop/Hard Ground Brass.caf	60	Fm	loop-horn-wind	loopmeta
+held	apple	Apple/01 Hip Hop/Hard Ground Octave Lead.caf	60	Fm	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Hard Ground Synth Lead.caf	60	Fm	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Hard Ground Synth Stabs.caf	60	Fm	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Honor Piano.caf	61	C#m	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Honor Sub Bass.caf	61	Am	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Honor Synth Arp.caf	61	C#m	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Honor Synth Lead.caf	61	C#m	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Honor Synth.caf	61	C#m	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Incoming Sub Bass.caf	70	Dm	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Incoming Synth Arp.caf	70	Dm	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Intergalactic Beat.caf	53	-	loop-drums	loopmeta
+dev	apple	Apple/01 Hip Hop/Intrepid Brass.caf	95	Dm	loop-horn-wind	loopmeta
+dev	apple	Apple/01 Hip Hop/Intrepid Synth.caf	95	Dm	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Just Bounce Beat.caf	83	-	loop-drums	loopmeta
+dev	apple	Apple/01 Hip Hop/Just Bounce Synth Lead.caf	83	Bm	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Knuckle Down Beat 02.caf	70	-	loop-drums	loopmeta
+held	apple	Apple/01 Hip Hop/Last Episode Piano.caf	93	Am	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Left Coast Piano.caf	75	A#m	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Legend Dark Synth Pad.caf	80.5	Cm	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Legend FX Synth Pad.caf	80.5	Cm	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Legend Sub Bass.caf	80.5	Cm	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Legend Synth Drone.caf	80.5	Cm	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Legend Synth Lead.caf	80.5	Cm	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Let's Roll Beat.caf	68	-	loop-drums	loopmeta
+held	apple	Apple/01 Hip Hop/Long Beach Electric Piano.caf	74	Fm	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Longing Bass.caf	82	Cm	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Longing Electric Piano.caf	82	Cm	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Longing Guitar.caf	82	Cm	loop-guitars	loopmeta
+dev	apple	Apple/01 Hip Hop/Longing Pad.caf	82	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Longing Piano.caf	82	Cm	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Longing Strings 01.caf	82	Cm	loop-strings	loopmeta
+held	apple	Apple/01 Hip Hop/Longing Strings 02.caf	82	Cm	loop-strings	loopmeta
+dev	apple	Apple/01 Hip Hop/Longing Synth 01.caf	82	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Longing Synth 02.caf	82	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Loose Change Beat.caf	82	-	loop-drums	loopmeta
+held	apple	Apple/01 Hip Hop/M Style Koto.caf	75	Cm	loop-guitars	loopmeta
+held	apple	Apple/01 Hip Hop/Mellow Drizzle Beat.caf	58	-	loop-drums	loopmeta
+held	apple	Apple/01 Hip Hop/Mellow Drizzle Soft Pad.caf	58	D	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Midnight Blue Sub Bass.caf	94	D#m	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Midnight Blue Synth.caf	94	D#m	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Minds Eye Beat 01.caf	97	-	loop-drums	loopmeta
+held	apple	Apple/01 Hip Hop/Minds Eye Sub Bass.caf	97	C#m	loop-bass	loopmeta
+dev	apple	Apple/01 Hip Hop/Minds Eye Synth Arp.caf	97	C#m	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Minds Eye Synth Lead.caf	97	C#m	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Moving On Beat.caf	84	-	loop-drums	loopmeta
+dev	apple	Apple/01 Hip Hop/Night Sky Synth.caf	97	Dm	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Panorama Beat.caf	75	-	loop-drums	loopmeta
+dev	apple	Apple/01 Hip Hop/Perplexing Beat 02.caf	90	-	loop-drums	loopmeta
+dev	apple	Apple/01 Hip Hop/Perplexing Sub Bass.caf	90	F#	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Perplexing Synth Arp.caf	90	F#	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Perplexing Synth Bass.caf	90	F#	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Pop Champagne Brass.caf	97	C#m	loop-horn-wind	loopmeta
+dev	apple	Apple/01 Hip Hop/Pop Champagne Flute.caf	97	C#m	loop-horn-wind	loopmeta
+dev	apple	Apple/01 Hip Hop/Pop Champagne Sax.caf	97	C#m	loop-horn-wind	loopmeta
+dev	apple	Apple/01 Hip Hop/Promises Beat.caf	93	-	loop-drums	loopmeta
+held	apple	Apple/01 Hip Hop/Promises Bell Synth.caf	93	Bm	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Promises Sub Bass.caf	93	Bm	loop-bass	loopmeta
+dev	apple	Apple/01 Hip Hop/Promises Synth Bass.caf	93	Bm	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Quiet Evolution Sub Bass.caf	94	Em	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Quiet Evolution Synth 01.caf	94	Em	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Quiet Evolution Synth 02.caf	94	Em	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Raindrops Beat.caf	101	-	loop-drums	loopmeta
+held	apple	Apple/01 Hip Hop/Raindrops Ping.caf	101	F#m	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Raindrops Sub Bass.caf	101	F#m	loop-bass	loopmeta
+dev	apple	Apple/01 Hip Hop/Regrets Piano.caf	80	Fm	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Regrets Sub Bass.caf	80	Fm	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Reign Supreme Piano.caf	86	A#m	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Rhyming Scheme Beat.caf	105	-	loop-drums	loopmeta
+dev	apple	Apple/01 Hip Hop/Rhyming Scheme Sub Bass.caf	105	A#m	loop-bass	loopmeta
+dev	apple	Apple/01 Hip Hop/Rhyming Scheme Synth Lead.caf	105	A#m	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Rise Up Bass.caf	81	C	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Rise Up Organ.caf	81	C	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Rise Up Piano.caf	81	C	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Rise Up Plucks.caf	81	C	loop-strings	loopmeta
+held	apple	Apple/01 Hip Hop/Rise Up Strings and Brass.caf	81	C	loop-strings	loopmeta
+held	apple	Apple/01 Hip Hop/Rising Up Beat.caf	82	-	loop-drums	loopmeta
+dev	apple	Apple/01 Hip Hop/Safe And Sound Brass.caf	65	D#m	loop-horn-wind	loopmeta
+dev	apple	Apple/01 Hip Hop/Safe And Sound Sub Bass.caf	65	D#m	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Safe And Sound Synth 01.caf	65	D#m	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Safe And Sound Synth 02.caf	65	D#m	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Shadow Beat.caf	96	-	loop-drums	loopmeta
+dev	apple	Apple/01 Hip Hop/Shadow Sub Bass.caf	96	D#m	loop-bass	loopmeta
+dev	apple	Apple/01 Hip Hop/Shadow Synth.caf	96	D#m	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Silky Smooth Sub Bass.caf	60	Dm	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Silky Smooth Synth 01.caf	60	Dm	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Silky Smooth Synth 02.caf	60	Dm	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Skyline Beat.caf	90	-	loop-drums	loopmeta
+dev	apple	Apple/01 Hip Hop/Slow Drift Ambient Synth.caf	101	A#m	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Slow Drift Bass Synth.caf	101	A#m	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Slow Drift Sub Bass.caf	101	A#m	loop-bass	loopmeta
+dev	apple	Apple/01 Hip Hop/Slow Motion Beat 01.caf	75	-	loop-drums	loopmeta
+held	apple	Apple/01 Hip Hop/Slow Motion Phaser Guitar.caf	75	G#m	loop-guitars	loopmeta
+dev	apple	Apple/01 Hip Hop/Slow Motion Piano.caf	75	G#m	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Sophistication Beat.caf	80	-	loop-drums	loopmeta
+held	apple	Apple/01 Hip Hop/Sophistication Pizzicato Strings.caf	80	D#m	loop-strings	loopmeta
+dev	apple	Apple/01 Hip Hop/Sophistication String Pad.caf	80	D#m	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Spotlight Synth Chords.caf	85	G#m	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Spotlight Synth Lead.caf	85	G#m	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Stealth Beat.caf	65	-	loop-drums	loopmeta
+dev	apple	Apple/01 Hip Hop/Stealth Sub Bass.caf	65	C#m	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Stealth Synth Arp.caf	65	C#m	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Stealth Synth Pad.caf	65	C#m	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Stone Cold Beat.caf	96	-	loop-drums	loopmeta
+dev	apple	Apple/01 Hip Hop/Stone Cold Orchestra Hits.caf	96	C#m	loop-strings	loopmeta
+dev	apple	Apple/01 Hip Hop/Stone Cold Sub Bass.caf	96	C#m	loop-bass	loopmeta
+dev	apple	Apple/01 Hip Hop/Stone Cold Synth Bass.caf	96	C#m	loop-bass	loopmeta
+dev	apple	Apple/01 Hip Hop/Stone Cold Warped Piano.caf	96	C#m	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Street Legal Echo Guitar.caf	93	F#m	loop-guitars	loopmeta
+dev	apple	Apple/01 Hip Hop/Street Legal Koto.caf	93	F#m	loop-strings	loopmeta
+held	apple	Apple/01 Hip Hop/Street Legal Phase Guitar.caf	93	F#m	loop-guitars	loopmeta
+held	apple	Apple/01 Hip Hop/Sunrise Beat.caf	73.5	-	loop-drums	loopmeta
+held	apple	Apple/01 Hip Hop/Sunrise Keys.caf	73.5	F#m	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Sunrise Sub Bass.caf	73.5	F#m	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Supernatural Echo Piano 02.caf	79	F#m	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Sympathy Bass.caf	82	Em	loop-bass	loopmeta
+dev	apple	Apple/01 Hip Hop/Sympathy Lead.caf	82	Em	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Sympathy Piano.caf	82	Em	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Sympathy Synth.caf	82	Em	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Tenacious Beat.caf	84.5	-	loop-drums	loopmeta
+dev	apple	Apple/01 Hip Hop/Tenacious Piano 01.caf	84.5	Gm	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Tenacious Piano 02.caf	84.5	Gm	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Tenacious Synth.caf	84.5	Gm	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Top Down Piano.caf	81	Cm	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Turbocharger Beat.caf	95	-	loop-drums	loopmeta
+dev	apple	Apple/01 Hip Hop/Turbocharger Sub Bass.caf	95	A#m	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Twilight Piano.caf	79	Fm	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Under Pressure Beat.caf	95	-	loop-drums	loopmeta
+dev	apple	Apple/01 Hip Hop/VIP Beat 02.caf	78	-	loop-drums	loopmeta
+dev	apple	Apple/01 Hip Hop/Watchful Eye Beat.caf	64	-	loop-drums	loopmeta
+held	apple	Apple/01 Hip Hop/Watchful Eye Bell Synth.caf	64	Dm	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Watchful Eye Sub Bass.caf	64	Dm	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Watchful Eye Synth Bass.caf	64	Dm	loop-bass	loopmeta
+dev	apple	Apple/01 Hip Hop/Wild West Piano.caf	94	Am	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Wonderland Beat.caf	67	-	loop-drums	loopmeta
+dev	apple	Apple/01 Hip Hop/Wonderland Pizzicato Strings.caf	67	Dm	loop-strings	loopmeta
+held	apple	Apple/01 Hip Hop/Wonderland Sub Bass.caf	67	Dm	loop-bass	loopmeta
+dev	apple	Apple/01 Hip Hop/Wonderland Synth Arp.caf	67	Dm	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Yearning Acoustic Guitar.caf	70	Am	loop-guitars	loopmeta
+dev	apple	Apple/01 Hip Hop/Yearning Electric Piano.caf	70	Am	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Yearning Gated Synth.caf	70	Am	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Yearning Piano.caf	70	Am	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Yearning Sub Bass.caf	70	Am	loop-bass	loopmeta
+held	apple	Apple/01 Hip Hop/Yearning Synth Arp.caf	70	Am	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Yearning Synth Drone.caf	70	Am	loop-keyboards	loopmeta
+dev	apple	Apple/01 Hip Hop/Yearning Synth Guitar.caf	70	Am	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Yearning Synth Lead.caf	70	Am	loop-keyboards	loopmeta
+held	apple	Apple/01 Hip Hop/Yearning Synth Pad.caf	70	Am	loop-keyboards	loopmeta
+dev	apple	Apple/02 Electro House/Above And Beyond Synth.caf	128	Cm	loop-keyboards	loopmeta
+held	apple	Apple/02 Electro House/Acid Test Bass.caf	128	Fm	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Action Synth.caf	128	Gm	loop-keyboards	loopmeta
+held	apple	Apple/02 Electro House/Aftershock Synth Lead.caf	125	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/02 Electro House/Aggressive Stance Bass.caf	128	Cm	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Airy Vox Synth.caf	128	Cm	loop-keyboards	loopmeta
+held	apple	Apple/02 Electro House/Alarming Bass.caf	128	Am	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Almost Reverse Topper.caf	128	-	loop-drums	loopmeta
+dev	apple	Apple/02 Electro House/Alpha Male Bass.caf	128	Gm	loop-bass	loopmeta
+dev	apple	Apple/02 Electro House/Amalgamate Chord Layers.caf	128	Am	loop-mixed	loopmeta
+dev	apple	Apple/02 Electro House/Americana Synth.caf	128	Am	loop-keyboards	loopmeta
+dev	apple	Apple/02 Electro House/Anthem Fever Synth.caf	125	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/02 Electro House/Bedlam Synth Layers.caf	128	Cm	loop-keyboards	loopmeta
+held	apple	Apple/02 Electro House/Bedrock Bass.caf	128	Am	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Better Late Bass.caf	128	D#m	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Big Snare Roll Topper.caf	128	-	loop-drums	loopmeta
+dev	apple	Apple/02 Electro House/Binary System Synth Layers.caf	128.01	F#m	loop-keyboards	loopmeta
+held	apple	Apple/02 Electro House/Blueprint Beat 01.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/02 Electro House/Blueprint Beat 03.caf	128	-	loop-drums	loopmeta
+dev	apple	Apple/02 Electro House/Bot Chord Layers 02.caf	125	C#m	loop-mixed	loopmeta
+held	apple	Apple/02 Electro House/Bouncer Bass.caf	128	Cm	loop-bass	loopmeta
+dev	apple	Apple/02 Electro House/Breaking Up Synth Chords.caf	128	Cm	loop-keyboards	loopmeta
+held	apple	Apple/02 Electro House/Builder Bass.caf	128	G#m	loop-bass	loopmeta
+dev	apple	Apple/02 Electro House/Chronograph Set Beat 01.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/02 Electro House/Clap Clap Beat 01.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/02 Electro House/Clap Swing Topper.caf	128	-	loop-drums	loopmeta
+dev	apple	Apple/02 Electro House/Classic Anthem Music.caf	128	Cm	loop-mixed	loopmeta
+held	apple	Apple/02 Electro House/Clipping Beat Topper.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/02 Electro House/Complex Loop Bass.caf	128	Fm	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Contortion Bass.caf	128	Gm	loop-bass	loopmeta
+dev	apple	Apple/02 Electro House/Crunchy Clap Topper.caf	128	-	loop-drums	loopmeta
+dev	apple	Apple/02 Electro House/Cut Loose Synth Layers.caf	128	Dm	loop-mixed	loopmeta
+dev	apple	Apple/02 Electro House/Cutting Theme Synth.caf	128	G#m	loop-keyboards	loopmeta
+held	apple	Apple/02 Electro House/DJ Appreciation Bass.caf	125	Em	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Data Strum Synth Layers.caf	128	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/02 Electro House/Deep Cycles Beat.caf	128	-	loop-drums	loopmeta
+dev	apple	Apple/02 Electro House/Deep Dream Synth.caf	128	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/02 Electro House/Deep Shuffle Beat.caf	128	-	loop-drums	loopmeta
+dev	apple	Apple/02 Electro House/Deep Turn Bass.caf	128	Am	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Delicate Synth Layers.caf	128	G#m	loop-mixed	loopmeta
+dev	apple	Apple/02 Electro House/Descending Riff Music.caf	128	Dm	loop-mixed	loopmeta
+dev	apple	Apple/02 Electro House/Diamond Sky Bass.caf	128	Cm	loop-bass	loopmeta
+dev	apple	Apple/02 Electro House/Digging Deep Synth.caf	128	C#m	loop-keyboards	loopmeta
+held	apple	Apple/02 Electro House/Digital Funk Bass.caf	128	Am	loop-bass	loopmeta
+dev	apple	Apple/02 Electro House/Elastic Bass.caf	128	Fm	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Electro Clap Topper.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/02 Electro House/Electro Topper 08.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/02 Electro House/Electro Topper 12.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/02 Electro House/Epic Anthem Synth.caf	128	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/02 Electro House/Fire Phaser Synth.caf	125	C	loop-keyboards	loopmeta
+dev	apple	Apple/02 Electro House/Fluid Emotion Synth.caf	128	Cm	loop-keyboards	loopmeta
+held	apple	Apple/02 Electro House/Four Four Beat.caf	128	-	loop-drums	loopmeta
+dev	apple	Apple/02 Electro House/Gene Sequence Bass.caf	128	Cm	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Gold Disc Synth Layers.caf	128	Cm	loop-keyboards	loopmeta
+held	apple	Apple/02 Electro House/Hard Grinding Bass.caf	128	Cm	loop-bass	loopmeta
+dev	apple	Apple/02 Electro House/Hearts Evolution Music.caf	128	G#m	loop-mixed	loopmeta
+dev	apple	Apple/02 Electro House/Heatseeker Synth Layers.caf	125	Cm	loop-mixed	loopmeta
+held	apple	Apple/02 Electro House/Heavy Kicker Beat.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/02 Electro House/High Pass Hit Topper.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/02 Electro House/Hit 80s FM Bass.caf	128	Fm	loop-bass	loopmeta
+dev	apple	Apple/02 Electro House/Hit the Lights Layers.caf	128	Fm	loop-mixed	loopmeta
+dev	apple	Apple/02 Electro House/House Clap Topper.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/02 Electro House/Jag Chord Synth Layers.caf	128	Am	loop-keyboards	loopmeta
+held	apple	Apple/02 Electro House/Jump Up Beat.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/02 Electro House/Laser Blaster Beat.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/02 Electro House/Lightspeed Lead Layers.caf	128	Cm	loop-mixed	loopmeta
+dev	apple	Apple/02 Electro House/Luminosity Synth Layers.caf	128	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/02 Electro House/Mass Appeal Layers 01.caf	128	Cm	loop-mixed	loopmeta
+dev	apple	Apple/02 Electro House/Massive Anthem Synth.caf	128	Am	loop-keyboards	loopmeta
+dev	apple	Apple/02 Electro House/Megaton Pitch Bass.caf	128	Cm	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Melodic Anthem Synth.caf	128	Am	loop-keyboards	loopmeta
+held	apple	Apple/02 Electro House/Melodic Silk Bass.caf	128	Cm	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Methodical Hook Bass.caf	128	Dm	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Military Roll Topper.caf	128	-	loop-drums	loopmeta
+dev	apple	Apple/02 Electro House/Mode Electro Bass.caf	128	Fm	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Modern Step Bass.caf	128	Am	loop-bass	loopmeta
+dev	apple	Apple/02 Electro House/Night Vision Synth Layers.caf	128	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/02 Electro House/Noisy Hat Beat.caf	128	-	loop-drums	loopmeta
+dev	apple	Apple/02 Electro House/Off Grid Lead Synth.caf	128	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/02 Electro House/Organ Insanity Synth.caf	128	Fm	loop-keyboards	loopmeta
+dev	apple	Apple/02 Electro House/Paddington Station Bass.caf	128	Gm	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Party Starter Bass.caf	128	Gm	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Peak Power Bass.caf	128	Gm	loop-bass	loopmeta
+dev	apple	Apple/02 Electro House/Plucky Space Synth.caf	128	G#m	loop-keyboards	loopmeta
+held	apple	Apple/02 Electro House/Pounding Waves Bass.caf	128	Gm	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Power Tool Bass.caf	128	Cm	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Prime Directive Layers.caf	128	Gm	loop-mixed	loopmeta
+held	apple	Apple/02 Electro House/Progressive Beat.caf	128	-	loop-drums	loopmeta
+dev	apple	Apple/02 Electro House/Progressive Techno Synth.caf	128	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/02 Electro House/Pure Candy Synth Layers.caf	128	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/02 Electro House/Pure Energy Bass.caf	128	Em	loop-bass	loopmeta
+dev	apple	Apple/02 Electro House/Quick Step Bass.caf	128	Gm	loop-bass	loopmeta
+dev	apple	Apple/02 Electro House/Radio Dial Synth.caf	125	G#m	loop-keyboards	loopmeta
+held	apple	Apple/02 Electro House/Rapid Chord Bass.caf	128	Cm	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Relentless Topper.caf	128	-	loop-drums	loopmeta
+dev	apple	Apple/02 Electro House/Remember Back Music.caf	128	Cm	loop-mixed	loopmeta
+dev	apple	Apple/02 Electro House/Rhythm Repeater Bass.caf	128	Em	loop-bass	loopmeta
+dev	apple	Apple/02 Electro House/Rising Emotion Synth.caf	128	C#m	loop-keyboards	loopmeta
+dev	apple	Apple/02 Electro House/Rising Sky High Synth.caf	128	G#m	loop-keyboards	loopmeta
+held	apple	Apple/02 Electro House/Robot Chat Synth Layers.caf	128	Cm	loop-keyboards	loopmeta
+held	apple	Apple/02 Electro House/Rocket Fuel Beat 02.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/02 Electro House/Rocket Fuel Beat 04.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/02 Electro House/Rolling Emo Synth.caf	128	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/02 Electro House/SciFi Topper.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/02 Electro House/Seismic Hammer Bass.caf	125	Cm	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Sensitive Synth.caf	128	Gm	loop-keyboards	loopmeta
+held	apple	Apple/02 Electro House/Seoul Sun Synth.caf	125	F#m	loop-keyboards	loopmeta
+dev	apple	Apple/02 Electro House/Shell Game Topper.caf	128	-	loop-drums	loopmeta
+dev	apple	Apple/02 Electro House/Shuffling Anthem Synth.caf	128	G#m	loop-keyboards	loopmeta
+dev	apple	Apple/02 Electro House/Silk Arpeggio Bass.caf	125	Fm	loop-bass	loopmeta
+dev	apple	Apple/02 Electro House/Simple Clap Beat.caf	128	-	loop-drums	loopmeta
+dev	apple	Apple/02 Electro House/Slippery Shuffle Topper.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/02 Electro House/Smash Hit Beat.caf	125	-	loop-drums	loopmeta
+held	apple	Apple/02 Electro House/Sonic Boom Synth Layers.caf	128	Cm	loop-mixed	loopmeta
+held	apple	Apple/02 Electro House/Sound the Alarm Synth.caf	125	G#	loop-keyboards	loopmeta
+held	apple	Apple/02 Electro House/Spike Riff Synth Layers.caf	128	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/02 Electro House/Static Electricity Topper 08.caf	128	-	loop-drums	loopmeta
+dev	apple	Apple/02 Electro House/Step It Up Bass.caf	128	Am	loop-bass	loopmeta
+dev	apple	Apple/02 Electro House/Stompy Clap Topper.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/02 Electro House/Stutter Synth Layers.caf	128	Cm	loop-keyboards	loopmeta
+held	apple	Apple/02 Electro House/Sunbeam Synth.caf	125	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/02 Electro House/Sweeper Beat.caf	128	-	loop-drums	loopmeta
+dev	apple	Apple/02 Electro House/Swerve Bass.caf	128	Fm	loop-bass	loopmeta
+dev	apple	Apple/02 Electro House/Tension Bass.caf	128	F#m	loop-bass	loopmeta
+dev	apple	Apple/02 Electro House/Thick Gritty Bass.caf	128	Cm	loop-bass	loopmeta
+dev	apple	Apple/02 Electro House/Tight House Topper.caf	128	-	loop-drums	loopmeta
+dev	apple	Apple/02 Electro House/Tight Tech Beat.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/02 Electro House/Transformative Bass.caf	128	Dm	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Tribal Core Beat.caf	128	-	loop-drums	loopmeta
+dev	apple	Apple/02 Electro House/Tribal Tech Beat.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/02 Electro House/Twister Bass.caf	128	Fm	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Viper Bite Beat 01.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/02 Electro House/Viper Bite Beat 03.caf	128	-	loop-drums	loopmeta
+dev	apple	Apple/02 Electro House/Voltaic Synth Layers.caf	128	Gm	loop-keyboards	loopmeta
+dev	apple	Apple/02 Electro House/Vox Box Synth Layers.caf	128	Gm	loop-keyboards	loopmeta
+dev	apple	Apple/02 Electro House/Vox Boxed Bass.caf	128	Fm	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Waves Bass.caf	128	Cm	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Winter Sunrise Synth.caf	128	G#m	loop-keyboards	loopmeta
+held	apple	Apple/02 Electro House/Wobble Alert Bass.caf	128	Fm	loop-bass	loopmeta
+held	apple	Apple/02 Electro House/Yeah Bass.caf	128	Fm	loop-bass	loopmeta
+dev	apple	Apple/02 Electro House/Zippy Synth.caf	128	C#m	loop-keyboards	loopmeta
+dev	apple	Apple/03 Dubstep/Almost Electro Beat.caf	140	-	loop-drums	loopmeta
+held	apple	Apple/03 Dubstep/Anvil Smash Beat 02.caf	140	-	loop-drums	loopmeta
+held	apple	Apple/03 Dubstep/Arcade Level Up Synth.caf	140	Am	loop-keyboards	loopmeta
+dev	apple	Apple/03 Dubstep/Arguing Robot Bass.caf	140	Dm	loop-bass	loopmeta
+dev	apple	Apple/03 Dubstep/Armament Beat 02.caf	140	-	loop-drums	loopmeta
+dev	apple	Apple/03 Dubstep/Bad Signal Beat 02.caf	140	-	loop-drums	loopmeta
+dev	apple	Apple/03 Dubstep/Bleepy Circles.caf	140	Am	loop-keyboards	loopmeta
+held	apple	Apple/03 Dubstep/Break Slow Lead.caf	140	Fm	loop-keyboards	loopmeta
+dev	apple	Apple/03 Dubstep/Chords Aplenty Synth.caf	140	Dm	loop-keyboards	loopmeta
+held	apple	Apple/03 Dubstep/Clap Echo Topper.caf	140	-	loop-drums	loopmeta
+held	apple	Apple/03 Dubstep/Classic Wobble Bass.caf	140	Dm	loop-bass	loopmeta
+dev	apple	Apple/03 Dubstep/Clock Sync Beat 02.caf	140	-	loop-drums	loopmeta
+dev	apple	Apple/03 Dubstep/Crispy Wobble Bass.caf	140	C#m	loop-bass	loopmeta
+dev	apple	Apple/03 Dubstep/Dance Anthem Lead.caf	140	Dm	loop-keyboards	loopmeta
+held	apple	Apple/03 Dubstep/Distorted Rumble Beat 02.caf	140	-	loop-drums	loopmeta
+held	apple	Apple/03 Dubstep/Electric Waves Bass.caf	140	Am	loop-bass	loopmeta
+held	apple	Apple/03 Dubstep/Huge Matrix Chord Synth.caf	140	Em	loop-keyboards	loopmeta
+held	apple	Apple/03 Dubstep/Hydraulic Press Beat 02.caf	140	-	loop-drums	loopmeta
+held	apple	Apple/03 Dubstep/Jump Up Theme Lead.caf	140	Am	loop-keyboards	loopmeta
+dev	apple	Apple/03 Dubstep/Liquid Wobble Bass.caf	140	Am	loop-bass	loopmeta
+dev	apple	Apple/03 Dubstep/Marching Dubstep 02.caf	140	-	loop-drums	loopmeta
+held	apple	Apple/03 Dubstep/Mega Anthem Synth.caf	140	Dm	loop-keyboards	loopmeta
+held	apple	Apple/03 Dubstep/Open Wide Wobble.caf	140	Am	loop-bass	loopmeta
+held	apple	Apple/03 Dubstep/Pleasant Synth Lead.caf	140	Cm	loop-keyboards	loopmeta
+held	apple	Apple/03 Dubstep/Retro Heavy Beat 02.caf	140	-	loop-drums	loopmeta
+held	apple	Apple/03 Dubstep/Retro Science Synth.caf	140	Gm	loop-keyboards	loopmeta
+held	apple	Apple/03 Dubstep/Rising Wobble Bass.caf	140	D#m	loop-bass	loopmeta
+held	apple	Apple/03 Dubstep/Shields Up Beat 01.caf	140	-	loop-drums	loopmeta
+dev	apple	Apple/03 Dubstep/Talking Machine.caf	140	Am	loop-bass	loopmeta
+held	apple	Apple/03 Dubstep/Trashy Slow Bass.caf	140	Cm	loop-bass	loopmeta
+dev	apple	Apple/03 Dubstep/Wind Tunnel Topper.caf	140	-	loop-drums	loopmeta
+dev	apple	Apple/04 Modern RnB/A-Game Glitch Synth.caf	130	Gm	loop-keyboards	loopmeta
+dev	apple	Apple/04 Modern RnB/Accelerate Beat.caf	127	-	loop-drums	loopmeta
+dev	apple	Apple/04 Modern RnB/Accelerate Synth.caf	127	A	loop-keyboards	loopmeta
+dev	apple	Apple/04 Modern RnB/Afterburner Synth Lead.caf	130	C#m	loop-keyboards	loopmeta
+held	apple	Apple/04 Modern RnB/All Hours Synth Chords.caf	120	F#	loop-keyboards	loopmeta
+held	apple	Apple/04 Modern RnB/All Your Base Gated Synth.caf	79	Dm	loop-keyboards	loopmeta
+held	apple	Apple/04 Modern RnB/All Your Base Rising Synth.caf	79	Dm	loop-keyboards	loopmeta
+held	apple	Apple/04 Modern RnB/Antigravity Guitar.caf	79	G#	loop-guitars	loopmeta
+held	apple	Apple/04 Modern RnB/Breathless Harp.caf	109	Em	loop-strings	loopmeta
+dev	apple	Apple/04 Modern RnB/Breathless Piano.caf	109	Em	loop-keyboards	loopmeta
+dev	apple	Apple/04 Modern RnB/Bring It Synth.caf	127	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/04 Modern RnB/Busting Brick Beat 01.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/04 Modern RnB/Closing Credits Beat 01.caf	82	-	loop-drums	loopmeta
+held	apple	Apple/04 Modern RnB/Digital Halo Synth.caf	120	A#	loop-keyboards	loopmeta
+held	apple	Apple/04 Modern RnB/Down Low Beat 01.caf	71	-	loop-drums	loopmeta
+held	apple	Apple/04 Modern RnB/Driving Home Synth Pad.caf	64	G#	loop-keyboards	loopmeta
+dev	apple	Apple/04 Modern RnB/Electric Daisy Bass 01.caf	130	G#m	loop-bass	loopmeta
+dev	apple	Apple/04 Modern RnB/Electric Daisy Bass 02.caf	130	G#m	loop-bass	loopmeta
+dev	apple	Apple/04 Modern RnB/Etiquette Strings.caf	79	F#m	loop-strings	loopmeta
+dev	apple	Apple/04 Modern RnB/Excelsior Strings.caf	79	F	loop-strings	loopmeta
+held	apple	Apple/04 Modern RnB/Fire it Up Beat 01.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/04 Modern RnB/Get Low Beat 01.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/04 Modern RnB/Get Low Beat 03.caf	128	-	loop-drums	loopmeta
+dev	apple	Apple/04 Modern RnB/Go Time Beat 02.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/04 Modern RnB/Go Time Layered Bass.caf	120	Dm	loop-bass	loopmeta
+held	apple	Apple/04 Modern RnB/Hall of Fame Synth.caf	130	A#	loop-keyboards	loopmeta
+dev	apple	Apple/04 Modern RnB/High Octane Synth.caf	130	Gm	loop-keyboards	loopmeta
+dev	apple	Apple/04 Modern RnB/Hot Stuff Beat 02.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/04 Modern RnB/Laser Light Synth Pad.caf	126	Am	loop-keyboards	loopmeta
+held	apple	Apple/04 Modern RnB/Magnetic Field Synth Bass.caf	126	A#m	loop-bass	loopmeta
+dev	apple	Apple/04 Modern RnB/Metro Arpeggio.caf	85	E	loop-keyboards	loopmeta
+held	apple	Apple/04 Modern RnB/Metro Synth Guitar.caf	85	Em	loop-guitars	loopmeta
+held	apple	Apple/04 Modern RnB/Neon Fireworks Beat 02.caf	129	-	loop-drums	loopmeta
+held	apple	Apple/04 Modern RnB/Night Owl Synth Lead.caf	126	F#m	loop-keyboards	loopmeta
+held	apple	Apple/04 Modern RnB/Paparazzi Beat 02.caf	115	-	loop-drums	loopmeta
+dev	apple	Apple/04 Modern RnB/Pitch Glitch Bass.caf	120	Cm	loop-bass	loopmeta
+held	apple	Apple/04 Modern RnB/Raise the Roof Synth.caf	130	Fm	loop-keyboards	loopmeta
+held	apple	Apple/04 Modern RnB/Set Free Synth Lead.caf	88	G#m	loop-keyboards	loopmeta
+dev	apple	Apple/04 Modern RnB/Set Free Synth Pad.caf	88	G#m	loop-keyboards	loopmeta
+dev	apple	Apple/04 Modern RnB/Silver and Gold Piano.caf	87	G#m	loop-keyboards	loopmeta
+dev	apple	Apple/04 Modern RnB/Sparks Fly Piano.caf	92	Gm	loop-keyboards	loopmeta
+dev	apple	Apple/04 Modern RnB/Sugar Cane Synth.caf	126	F#	loop-keyboards	loopmeta
+dev	apple	Apple/04 Modern RnB/Wheels Up Synth.caf	82	A#m	loop-keyboards	loopmeta
+dev	apple	Apple/04 Modern RnB/World Champion Synth.caf	120	Dm	loop-keyboards	loopmeta
+held	apple	Apple/04 Modern RnB/Zip Line Bass 01.caf	120	Em	loop-bass	loopmeta
+held	apple	Apple/04 Modern RnB/Zip Line Bass 02.caf	120	Em	loop-bass	loopmeta
+held	apple	Apple/07 Chillwave/80s Back Beat 02.caf	100	-	loop-drums	loopmeta
+held	apple	Apple/07 Chillwave/Acoustic Layers Beat 02.caf	85	-	loop-drums	loopmeta
+dev	apple	Apple/07 Chillwave/Analog Clap Beat 01.caf	100	-	loop-drums	loopmeta
+held	apple	Apple/07 Chillwave/Beach Run Synth.caf	110	Gm	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Before Dawn Vox.caf	100	G#m	loop-texture-atmosphere	loopmeta
+dev	apple	Apple/07 Chillwave/Brooklyn Nights Bass.caf	100	Dm	loop-bass	loopmeta
+dev	apple	Apple/07 Chillwave/Brooklyn Nights Guitar.caf	100	Dm	loop-guitars	loopmeta
+dev	apple	Apple/07 Chillwave/Brooklyn Nights Synth.caf	100	Dm	loop-keyboards	loopmeta
+held	apple	Apple/07 Chillwave/Chill Chords Acoustic Guitar.caf	100	Bm	loop-guitars	loopmeta
+held	apple	Apple/07 Chillwave/Chill Chords Bass.caf	100	Bm	loop-bass	loopmeta
+dev	apple	Apple/07 Chillwave/Chill Loop Guitar.caf	90	D	loop-guitars	loopmeta
+dev	apple	Apple/07 Chillwave/Chill Melody Bass 02.caf	100	E	loop-bass	loopmeta
+held	apple	Apple/07 Chillwave/Chill Melody Guitar Chords.caf	100	E	loop-guitars	loopmeta
+dev	apple	Apple/07 Chillwave/Chill Melody Lead Guitar.caf	100	E	loop-guitars	loopmeta
+dev	apple	Apple/07 Chillwave/Chill Melody Synth 01.caf	100	E	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Chill Melody Synth 02.caf	100	E	loop-keyboards	loopmeta
+held	apple	Apple/07 Chillwave/Concourse Bass.caf	80	E	loop-bass	loopmeta
+dev	apple	Apple/07 Chillwave/Concourse Synth.caf	80	B	loop-keyboards	loopmeta
+held	apple	Apple/07 Chillwave/Continuum Beat 01.caf	85	-	loop-drums	loopmeta
+held	apple	Apple/07 Chillwave/Continuum Beat 03.caf	85	-	loop-drums	loopmeta
+held	apple	Apple/07 Chillwave/Contrails Acoustic Guitar.caf	110	Bm	loop-guitars	loopmeta
+dev	apple	Apple/07 Chillwave/Contrails Bass.caf	110	Bm	loop-bass	loopmeta
+held	apple	Apple/07 Chillwave/Contrails Lead Guitar.caf	110	Bm	loop-guitars	loopmeta
+dev	apple	Apple/07 Chillwave/Contrails Synth.caf	110	Bm	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Cosmic Bell Layers 01.caf	100	Em	loop-mixed	loopmeta
+dev	apple	Apple/07 Chillwave/Cosmic Bell Layers 02.caf	100	Em	loop-mixed	loopmeta
+held	apple	Apple/07 Chillwave/Cruiser Bass.caf	85	F#	loop-bass	loopmeta
+held	apple	Apple/07 Chillwave/Cruiser Guitar.caf	85	F#	loop-guitars	loopmeta
+held	apple	Apple/07 Chillwave/Cruiser Synth.caf	85	F#	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Crunchy Beat 02.caf	100	-	loop-drums	loopmeta
+held	apple	Apple/07 Chillwave/Crunchy Funk 02.caf	90	-	loop-drums	loopmeta
+held	apple	Apple/07 Chillwave/Delicate Lines Synth.caf	100	Am	loop-keyboards	loopmeta
+held	apple	Apple/07 Chillwave/Digital Riff Guitar.caf	110	Dm	loop-guitars	loopmeta
+held	apple	Apple/07 Chillwave/Digital Riff Synth.caf	110	Dm	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Disco Swagger Beat 02.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/07 Chillwave/Double Note Guitar.caf	90	A#	loop-guitars	loopmeta
+dev	apple	Apple/07 Chillwave/Double Note Synth.caf	90	A#	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Double Snare Beat 02.caf	100	-	loop-drums	loopmeta
+held	apple	Apple/07 Chillwave/Doubledown Beat 01.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/07 Chillwave/Dream State Guitar.caf	95	D#	loop-guitars	loopmeta
+dev	apple	Apple/07 Chillwave/Dreamers Bass.caf	100	Gm	loop-bass	loopmeta
+held	apple	Apple/07 Chillwave/Dreamers Guitar.caf	100	Gm	loop-guitars	loopmeta
+held	apple	Apple/07 Chillwave/Dreamers Synth.caf	100	Gm	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Drifting Off Guitar.caf	90	E	loop-guitars	loopmeta
+held	apple	Apple/07 Chillwave/Dusty Mirror Layers 01.caf	100	A#m	loop-mixed	loopmeta
+held	apple	Apple/07 Chillwave/Dusty Mirror Layers 02.caf	100	A#m	loop-mixed	loopmeta
+held	apple	Apple/07 Chillwave/Early Riser Layers 01.caf	100	Gm	loop-mixed	loopmeta
+held	apple	Apple/07 Chillwave/Early Riser Layers 02.caf	100	Gm	loop-mixed	loopmeta
+held	apple	Apple/07 Chillwave/Echo Loop Guitar.caf	100	Cm	loop-guitars	loopmeta
+held	apple	Apple/07 Chillwave/End Credits Synth.caf	100	G#m	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Ethereal Lounge Guitar.caf	100	Fm	loop-guitars	loopmeta
+held	apple	Apple/07 Chillwave/Ethereal Lounge Synth.caf	100	Fm	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Evolving Space Bass.caf	100	Cm	loop-bass	loopmeta
+held	apple	Apple/07 Chillwave/Evolving Space Synth.caf	100	Cm	loop-keyboards	loopmeta
+held	apple	Apple/07 Chillwave/Firefly Synth 01.caf	100	G	loop-keyboards	loopmeta
+held	apple	Apple/07 Chillwave/Firefly Synth 02.caf	100	G	loop-keyboards	loopmeta
+held	apple	Apple/07 Chillwave/Forward Progress Guitar.caf	100	Dm	loop-guitars	loopmeta
+dev	apple	Apple/07 Chillwave/Forward Progress Synth.caf	100	Dm	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Future State Synth.caf	100	A#m	loop-keyboards	loopmeta
+held	apple	Apple/07 Chillwave/Genetic Code Layers 01.caf	100	Gm	loop-mixed	loopmeta
+held	apple	Apple/07 Chillwave/Genetic Code Layers 02.caf	100	Gm	loop-mixed	loopmeta
+dev	apple	Apple/07 Chillwave/Ghost Harmonics Synth.caf	100	Em	loop-keyboards	loopmeta
+held	apple	Apple/07 Chillwave/Golden Years Layers 01.caf	100	Cm	loop-mixed	loopmeta
+held	apple	Apple/07 Chillwave/Golden Years Layers 02.caf	100	Cm	loop-mixed	loopmeta
+held	apple	Apple/07 Chillwave/Harmonic Waves Bass.caf	90	E	loop-bass	loopmeta
+held	apple	Apple/07 Chillwave/Harmonic Waves Guitar.caf	90	E	loop-guitars	loopmeta
+held	apple	Apple/07 Chillwave/Harmonic Waves Synth Lead.caf	90	E	loop-keyboards	loopmeta
+held	apple	Apple/07 Chillwave/Harmonic Waves Synth Pad.caf	90	E	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Helios Beat 01.caf	80	-	loop-drums	loopmeta
+dev	apple	Apple/07 Chillwave/Helios Beat 03.caf	80	-	loop-drums	loopmeta
+held	apple	Apple/07 Chillwave/Hourglass Bass.caf	80	Bm	loop-bass	loopmeta
+dev	apple	Apple/07 Chillwave/Hourglass Guitar.caf	80	Bm	loop-guitars	loopmeta
+held	apple	Apple/07 Chillwave/Hourglass Synth.caf	80	Bm	loop-keyboards	loopmeta
+held	apple	Apple/07 Chillwave/Hyperlapse Bass.caf	120	C#	loop-bass	loopmeta
+held	apple	Apple/07 Chillwave/Hyperlapse Guitar.caf	120	C#	loop-guitars	loopmeta
+dev	apple	Apple/07 Chillwave/Hyperlapse Synth.caf	120	C#	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Icy Crystals Bass.caf	100	Am	loop-bass	loopmeta
+dev	apple	Apple/07 Chillwave/Icy Crystals Guitar.caf	100	Am	loop-guitars	loopmeta
+held	apple	Apple/07 Chillwave/Icy Crystals Synth.caf	100	Am	loop-keyboards	loopmeta
+held	apple	Apple/07 Chillwave/Kyoto Night Bass.caf	100	Bm	loop-bass	loopmeta
+dev	apple	Apple/07 Chillwave/Kyoto Night Guitar.caf	100	Bm	loop-guitars	loopmeta
+dev	apple	Apple/07 Chillwave/Kyoto Night Synth.caf	100	Bm	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Landing in LA Bass 01.caf	120	Cm	loop-bass	loopmeta
+dev	apple	Apple/07 Chillwave/Landing in LA Bass 02.caf	120	Cm	loop-bass	loopmeta
+held	apple	Apple/07 Chillwave/Landing in LA Guitar.caf	120	Cm	loop-guitars	loopmeta
+dev	apple	Apple/07 Chillwave/Landing in LA Synth 01.caf	120	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Landing in LA Synth 02.caf	120	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Landing in LA Synth 03.caf	120	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Lazy 80s Beat 02.caf	80	-	loop-drums	loopmeta
+dev	apple	Apple/07 Chillwave/Lifting Off Bass.caf	120	F#m	loop-bass	loopmeta
+held	apple	Apple/07 Chillwave/Lifting Off Synth.caf	120	F#m	loop-keyboards	loopmeta
+held	apple	Apple/07 Chillwave/Lush Chords Bass.caf	90	Am	loop-bass	loopmeta
+held	apple	Apple/07 Chillwave/Lush Chords Guitar.caf	90	Am	loop-guitars	loopmeta
+held	apple	Apple/07 Chillwave/Matchbox Beat 01.caf	100	-	loop-drums	loopmeta
+held	apple	Apple/07 Chillwave/Minimal Backbeat 01.caf	120	-	loop-drums	loopmeta
+held	apple	Apple/07 Chillwave/Minimal Disco 80s Beat 01.caf	110	-	loop-drums	loopmeta
+held	apple	Apple/07 Chillwave/Minimal Disco 80s Beat 03.caf	110	-	loop-drums	loopmeta
+dev	apple	Apple/07 Chillwave/Moving Pictures Acoustic Guitar.caf	120	G	loop-guitars	loopmeta
+dev	apple	Apple/07 Chillwave/Moving Pictures Bass.caf	120	G	loop-bass	loopmeta
+dev	apple	Apple/07 Chillwave/Moving Pictures Rhythm Guitar.caf	120	G	loop-guitars	loopmeta
+dev	apple	Apple/07 Chillwave/Moving Pictures Synth.caf	120	G	loop-keyboards	loopmeta
+held	apple	Apple/07 Chillwave/Muted Phase Bass.caf	100	A#m	loop-bass	loopmeta
+dev	apple	Apple/07 Chillwave/Muted Phase Guitar.caf	100	A#m	loop-guitars	loopmeta
+dev	apple	Apple/07 Chillwave/Next Wave Beat 02.caf	110	-	loop-drums	loopmeta
+held	apple	Apple/07 Chillwave/Night Flight Bass.caf	90	F	loop-bass	loopmeta
+dev	apple	Apple/07 Chillwave/Night Flight Guitar 01.caf	90	F	loop-guitars	loopmeta
+dev	apple	Apple/07 Chillwave/Night Flight Guitar 02.caf	90	F	loop-guitars	loopmeta
+dev	apple	Apple/07 Chillwave/Night Flight Synth.caf	90	F	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Noisy Vox.caf	100	D#m	loop-texture-atmosphere	loopmeta
+held	apple	Apple/07 Chillwave/Nylon Spanish Guitar.caf	100	Cm	loop-guitars	loopmeta
+dev	apple	Apple/07 Chillwave/Overdriven Guitar Lead.caf	100	A	loop-guitars	loopmeta
+dev	apple	Apple/07 Chillwave/Pastel Colors Beat 01.caf	100	-	loop-drums	loopmeta
+held	apple	Apple/07 Chillwave/Prismatic Guitar Chords.caf	85	C#	loop-guitars	loopmeta
+held	apple	Apple/07 Chillwave/Prismatic Rhythm Guitar.caf	85	C#	loop-guitars	loopmeta
+held	apple	Apple/07 Chillwave/Prismatic Synth.caf	85	C#	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Pulsing Sample Vox.caf	100	Em	loop-texture-atmosphere	loopmeta
+dev	apple	Apple/07 Chillwave/Pumping Layers Vox.caf	100	Gm	loop-texture-atmosphere	loopmeta
+dev	apple	Apple/07 Chillwave/Reverse Hat Beat 01.caf	90	-	loop-drums	loopmeta
+dev	apple	Apple/07 Chillwave/Rising Chords Bass 01.caf	95	A#m	loop-bass	loopmeta
+dev	apple	Apple/07 Chillwave/Rising Chords Bass 02.caf	95	A#m	loop-bass	loopmeta
+held	apple	Apple/07 Chillwave/Rising Chords Guitar.caf	95	A#m	loop-guitars	loopmeta
+dev	apple	Apple/07 Chillwave/Rising Chords Synth.caf	95	A#m	loop-keyboards	loopmeta
+held	apple	Apple/07 Chillwave/Road Trip Summer Bass.caf	120	Cm	loop-bass	loopmeta
+held	apple	Apple/07 Chillwave/Road Trip Summer Guitar.caf	120	Cm	loop-guitars	loopmeta
+held	apple	Apple/07 Chillwave/Road Trip Summer Synth.caf	120	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Sakura Bass.caf	100	Am	loop-bass	loopmeta
+held	apple	Apple/07 Chillwave/Sakura Synth.caf	100	Am	loop-keyboards	loopmeta
+held	apple	Apple/07 Chillwave/Shinjuku Streets Synth.caf	100	D#m	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Simple Melody Bass.caf	120	F	loop-bass	loopmeta
+held	apple	Apple/07 Chillwave/Simple Melody Guitar.caf	120	F	loop-guitars	loopmeta
+held	apple	Apple/07 Chillwave/Simple Melody Synth.caf	120	F	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Soft Waves Harmonic Guitar.caf	90	D	loop-guitars	loopmeta
+dev	apple	Apple/07 Chillwave/Soft Waves Synth.caf	90	D	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Solid Structure Beat 01.caf	100	-	loop-drums	loopmeta
+held	apple	Apple/07 Chillwave/Stereo Delay Harmonic Guitar.caf	90	G	loop-guitars	loopmeta
+held	apple	Apple/07 Chillwave/Still Life Bass.caf	80	Cm	loop-bass	loopmeta
+held	apple	Apple/07 Chillwave/Still Life Synth.caf	80	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Summers End Acoustic Guitar.caf	120	D#	loop-guitars	loopmeta
+dev	apple	Apple/07 Chillwave/Summers End Bass.caf	120	D#	loop-bass	loopmeta
+held	apple	Apple/07 Chillwave/Time Delay Bass.caf	100	G#	loop-bass	loopmeta
+dev	apple	Apple/07 Chillwave/Time Delay Guitar.caf	100	G#	loop-guitars	loopmeta
+held	apple	Apple/07 Chillwave/Time Delay Synth.caf	100	G#	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Tokyo Dreams Bass.caf	90	D#m	loop-bass	loopmeta
+held	apple	Apple/07 Chillwave/Tokyo Dreams Delay Guitar.caf	90	D#	loop-guitars	loopmeta
+held	apple	Apple/07 Chillwave/Tokyo Dreams Guitar.caf	90	D#	loop-guitars	loopmeta
+dev	apple	Apple/07 Chillwave/Tokyo Dreams Lead Guitar.caf	90	D#	loop-guitars	loopmeta
+held	apple	Apple/07 Chillwave/Tokyo Dreams Pad.caf	90	Gm	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Tokyo Dreams Synth.caf	90	Gm	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Tom Tom Disco Beat 01.caf	110	-	loop-drums	loopmeta
+dev	apple	Apple/07 Chillwave/Tom Tom Disco Beat 03.caf	110	-	loop-drums	loopmeta
+dev	apple	Apple/07 Chillwave/Transporter Bass.caf	90	G	loop-bass	loopmeta
+dev	apple	Apple/07 Chillwave/Transporter Guitar.caf	90	G	loop-guitars	loopmeta
+dev	apple	Apple/07 Chillwave/Transporter Synth Lead.caf	90	G	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/Transporter Synth Pad.caf	90	G	loop-keyboards	loopmeta
+dev	apple	Apple/07 Chillwave/VHS Sunset Bass.caf	80	Cm	loop-bass	loopmeta
+held	apple	Apple/07 Chillwave/VHS Sunset Synth.caf	80	Cm	loop-keyboards	loopmeta
+held	apple	Apple/08 Indie Disco/Across the Liffey Lead Guitar.caf	115	F#	loop-guitars	loopmeta
+held	apple	Apple/08 Indie Disco/Arpeggio Interlude Guitar.caf	125	G	loop-guitars	loopmeta
+held	apple	Apple/08 Indie Disco/Brixton Lights Bass 01.caf	110	Dm	loop-bass	loopmeta
+held	apple	Apple/08 Indie Disco/Brixton Lights Bass 02.caf	110	Dm	loop-bass	loopmeta
+held	apple	Apple/08 Indie Disco/Brixton Lights Lead Guitar.caf	110	Dm	loop-guitars	loopmeta
+held	apple	Apple/08 Indie Disco/Brixton Lights Rhythm Guitar 01.caf	110	Dm	loop-guitars	loopmeta
+held	apple	Apple/08 Indie Disco/Brixton Lights Rhythm Guitar 02.caf	110	Dm	loop-guitars	loopmeta
+dev	apple	Apple/08 Indie Disco/Camden Lock Bass.caf	120	Am	loop-bass	loopmeta
+held	apple	Apple/08 Indie Disco/Camden Lock Lead Guitar.caf	120	Am	loop-guitars	loopmeta
+dev	apple	Apple/08 Indie Disco/Camden Lock Rhythm Guitar.caf	120	Am	loop-guitars	loopmeta
+held	apple	Apple/08 Indie Disco/Chopping Block Synth.caf	115	Dm	loop-keyboards	loopmeta
+dev	apple	Apple/08 Indie Disco/Disco Pop Lead Guitar.caf	120	C#	loop-guitars	loopmeta
+held	apple	Apple/08 Indie Disco/Disco Pop Rhythm Guitar.caf	120	C#	loop-guitars	loopmeta
+held	apple	Apple/08 Indie Disco/Disco Pop Synth Pad.caf	120	C#	loop-keyboards	loopmeta
+dev	apple	Apple/08 Indie Disco/Disco Pop Synth Stabs.caf	120	C#	loop-keyboards	loopmeta
+dev	apple	Apple/08 Indie Disco/Disco Trance Guitar.caf	120	Dm	loop-guitars	loopmeta
+dev	apple	Apple/08 Indie Disco/Disco Trance Synth.caf	120	Cm	loop-keyboards	loopmeta
+held	apple	Apple/08 Indie Disco/Dystopia Paranoia Synth.caf	115	Am	loop-keyboards	loopmeta
+held	apple	Apple/08 Indie Disco/Gear Up Guitar.caf	130	B	loop-guitars	loopmeta
+dev	apple	Apple/08 Indie Disco/Gear Up Synth.caf	130	B	loop-keyboards	loopmeta
+dev	apple	Apple/08 Indie Disco/Modern Disco Guitar.caf	115	Fm	loop-guitars	loopmeta
+dev	apple	Apple/08 Indie Disco/Neon Desert Bass.caf	125	D	loop-bass	loopmeta
+held	apple	Apple/08 Indie Disco/Neon Desert Guitar.caf	125	D	loop-guitars	loopmeta
+dev	apple	Apple/08 Indie Disco/Neon Desert Synth.caf	125	D	loop-keyboards	loopmeta
+held	apple	Apple/08 Indie Disco/Positive Tension Guitar.caf	120	Fm	loop-guitars	loopmeta
+dev	apple	Apple/08 Indie Disco/Positive Tension Synth.caf	120	Fm	loop-keyboards	loopmeta
+held	apple	Apple/08 Indie Disco/Pyramids Lead Guitar.caf	115	Dm	loop-guitars	loopmeta
+dev	apple	Apple/08 Indie Disco/Pyramids Rhythm Guitar.caf	115	Dm	loop-guitars	loopmeta
+held	apple	Apple/08 Indie Disco/Reflex Bass 01.caf	130	Am	loop-bass	loopmeta
+held	apple	Apple/08 Indie Disco/Reflex Bass 02.caf	130	Am	loop-bass	loopmeta
+held	apple	Apple/08 Indie Disco/Reflex Lead Guitar.caf	130	Am	loop-guitars	loopmeta
+held	apple	Apple/08 Indie Disco/Reflex Rhythm Guitar.caf	130	Am	loop-guitars	loopmeta
+held	apple	Apple/08 Indie Disco/Reflex Synth.caf	130	Am	loop-keyboards	loopmeta
+held	apple	Apple/08 Indie Disco/Right Angle Bass.caf	125	Cm	loop-bass	loopmeta
+dev	apple	Apple/08 Indie Disco/Right Angle Rhythm Guitar.caf	125	Cm	loop-guitars	loopmeta
+dev	apple	Apple/08 Indie Disco/Shimmering Melody Lead Guitar.caf	130	A	loop-guitars	loopmeta
+dev	apple	Apple/08 Indie Disco/Shimmering Melody Rhythm Guitar.caf	130	Am	loop-guitars	loopmeta
+held	apple	Apple/08 Indie Disco/Shimmering Melody Synth.caf	130	Am	loop-keyboards	loopmeta
+dev	apple	Apple/08 Indie Disco/Slow Go Disco Lead Guitar.caf	120	Dm	loop-guitars	loopmeta
+held	apple	Apple/08 Indie Disco/Slow Go Disco Synth Pad.caf	120	Dm	loop-keyboards	loopmeta
+dev	apple	Apple/08 Indie Disco/Slow Go Disco Synth Stabs.caf	120	Dm	loop-keyboards	loopmeta
+dev	apple	Apple/08 Indie Disco/Straight Ringer Guitar.caf	120	A#	loop-guitars	loopmeta
+held	apple	Apple/08 Indie Disco/Sublime Trance Guitar.caf	130	Dm	loop-guitars	loopmeta
+dev	apple	Apple/08 Indie Disco/Sublime Trance Synth.caf	130	Dm	loop-keyboards	loopmeta
+held	apple	Apple/08 Indie Disco/Sugar Sweet Guitar.caf	125	C	loop-guitars	loopmeta
+dev	apple	Apple/08 Indie Disco/Sugar Sweet Synth.caf	125	C	loop-keyboards	loopmeta
+held	apple	Apple/08 Indie Disco/Tight Spaces Rhythm Guitar.caf	130	Dm	loop-guitars	loopmeta
+dev	apple	Apple/08 Indie Disco/Traffic Jam Guitar.caf	110	Dm	loop-guitars	loopmeta
+dev	apple	Apple/08 Indie Disco/West End Guitar.caf	110	F#m	loop-guitars	loopmeta
+held	apple	Apple/08 Indie Disco/Wistful Disco Guitar.caf	115	E	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Agile Funk Synth Bass 01.caf	116	Em	loop-bass	loopmeta
+held	apple	Apple/09 Disco Funk/Agile Funk Synth Bass 02.caf	116	Em	loop-bass	loopmeta
+held	apple	Apple/09 Disco Funk/Agile Funk Synth Lead 01.caf	116	Em	loop-keyboards	loopmeta
+held	apple	Apple/09 Disco Funk/Agile Funk Synth Lead 02.caf	116	Em	loop-keyboards	loopmeta
+held	apple	Apple/09 Disco Funk/Agile Funk Synth Lead 03.caf	116	Em	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Bell Bottom Bass.caf	120	Em	loop-bass	loopmeta
+dev	apple	Apple/09 Disco Funk/Bell Bottom Electric Piano.caf	120	Em	loop-keyboards	loopmeta
+held	apple	Apple/09 Disco Funk/Bell Bottom Guitar.caf	120	Em	loop-guitars	loopmeta
+dev	apple	Apple/09 Disco Funk/Bending Wah Guitar.caf	120	Dm	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Blue Steel Electric Piano.caf	115	Gm	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Blue Steel Guitar.caf	115	Gm	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Boogie Right Beat 02.caf	116	-	loop-drums	loopmeta
+dev	apple	Apple/09 Disco Funk/Boogie Right Brass 01.caf	116	Em	loop-horn-wind	loopmeta
+dev	apple	Apple/09 Disco Funk/Boogie Right Brass 02.caf	116	Em	loop-horn-wind	loopmeta
+dev	apple	Apple/09 Disco Funk/Boogie Right Funk Guitar 01.caf	116	Em	loop-guitars	loopmeta
+dev	apple	Apple/09 Disco Funk/Boogie Right Funk Guitar 02.caf	116	Em	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Boogie Right Gliding Lead.caf	116	Em	loop-keyboards	loopmeta
+held	apple	Apple/09 Disco Funk/Boogie Right Slap Bass 01.caf	116	Em	loop-bass	loopmeta
+held	apple	Apple/09 Disco Funk/Boogie Right Slap Bass 02.caf	116	Em	loop-bass	loopmeta
+dev	apple	Apple/09 Disco Funk/Boogie Right Synth FX.caf	116	Em	loop-sound effect	loopmeta
+dev	apple	Apple/09 Disco Funk/Boogie Right Synth Lead 01.caf	116	Em	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Boogie Right Synth Lead 02.caf	116	Em	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Boogie Right Synth Stabs.caf	116	Em	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Boogie Right Vox Synth.caf	116	Em	loop-vocals	loopmeta
+held	apple	Apple/09 Disco Funk/Bumping Disco Electric Piano.caf	125	Em	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Bumping Disco Guitar.caf	125	Em	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Chase Scene Bass.caf	125	Gm	loop-bass	loopmeta
+dev	apple	Apple/09 Disco Funk/Chromatic Funk Guitar.caf	125	Fm	loop-guitars	loopmeta
+dev	apple	Apple/09 Disco Funk/Cosmic Disco Guitar.caf	120	Gm	loop-guitars	loopmeta
+dev	apple	Apple/09 Disco Funk/Crosstown Disco Clav 02.caf	125	F	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Crosstown Disco Clav 03.caf	125	Dm	loop-keyboards	loopmeta
+held	apple	Apple/09 Disco Funk/Crosstown Disco Electric Piano.caf	125	Dm	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Crosstown Disco Piano.caf	125	Dm	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Crystal Ball Clav.caf	120	Fm	loop-keyboards	loopmeta
+held	apple	Apple/09 Disco Funk/Crystal Ball Electric Piano.caf	120	Fm	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Crystal Ball Wah Guitar.caf	120	Fm	loop-guitars	loopmeta
+dev	apple	Apple/09 Disco Funk/Dance Floor Lights Clav.caf	115	Dm	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Dance Floor Lights Guitar.caf	115	Dm	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Deep Disco Bass.caf	115	D#m	loop-bass	loopmeta
+dev	apple	Apple/09 Disco Funk/Deep Disco Guitar.caf	115	D#m	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Disco Delight Electric Piano 01.caf	120	B	loop-keyboards	loopmeta
+held	apple	Apple/09 Disco Funk/Disco Delight Electric Piano 02.caf	120	B	loop-keyboards	loopmeta
+held	apple	Apple/09 Disco Funk/Disco Delight Electric Piano 04.caf	120	B	loop-keyboards	loopmeta
+held	apple	Apple/09 Disco Funk/Disco Delight Piano.caf	120	B	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Disco Delight Rhythm Guitar.caf	120	B	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Disco Fever Clav.caf	120	Dm	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Disco Fever Guitar.caf	120	Dm	loop-guitars	loopmeta
+dev	apple	Apple/09 Disco Funk/Disco Freak Guitar.caf	120	Dm	loop-guitars	loopmeta
+dev	apple	Apple/09 Disco Funk/Disco Hit Guitar.caf	125	Dm	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Disco Incognito Electric Piano.caf	125	D#m	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Disco Incognito Guitar.caf	125	D#m	loop-guitars	loopmeta
+dev	apple	Apple/09 Disco Funk/Disco Revolution Guitar.caf	120	F	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Disco Riser Electric Piano.caf	125	Cm	loop-keyboards	loopmeta
+held	apple	Apple/09 Disco Funk/Disco Riser Guitar.caf	125	Cm	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Disco Wah Breakdown Rhythm Guitar.caf	120	Em	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Down With It Beat 01.caf	116	-	loop-drums	loopmeta
+dev	apple	Apple/09 Disco Funk/Down With It Brass.caf	116	Em	loop-horn-wind	loopmeta
+held	apple	Apple/09 Disco Funk/Down With It Funk Guitar 01.caf	116	Em	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Down With It Funk Guitar 02.caf	116	Em	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Down With It Funk Guitar 03.caf	116	Em	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Down With It Funk Guitar 04.caf	116	Em	loop-guitars	loopmeta
+dev	apple	Apple/09 Disco Funk/Down With It Gated Synth.caf	116	Em	loop-keyboards	loopmeta
+held	apple	Apple/09 Disco Funk/Down With It Slap Bass 01.caf	116	Em	loop-bass	loopmeta
+held	apple	Apple/09 Disco Funk/Down With It Slap Bass 02.caf	116	Em	loop-bass	loopmeta
+held	apple	Apple/09 Disco Funk/Down With It Synth Bass 01.caf	116	Em	loop-bass	loopmeta
+held	apple	Apple/09 Disco Funk/Down With It Synth Bass 02.caf	116	Em	loop-bass	loopmeta
+held	apple	Apple/09 Disco Funk/Down With It Synth Clav.caf	116	Em	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Down With It Synth Stabs 01.caf	116	Em	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Down With It Vox Synth.caf	116	Em	loop-vocals	loopmeta
+held	apple	Apple/09 Disco Funk/Dream Disco Electric Piano.caf	120	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Dream Disco Guitar.caf	120	Cm	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Drop the Funk Clav.caf	120	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Drop the Funk Electric Piano.caf	120	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Electric Funk Beat.caf	120	Am	loop-drums	loopmeta
+held	apple	Apple/09 Disco Funk/Electric Funk Gliding Lead.caf	120	Am	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Electric Funk Guitar 01.caf	120	Am	loop-guitars	loopmeta
+dev	apple	Apple/09 Disco Funk/Electric Funk Guitar 02.caf	120	Am	loop-guitars	loopmeta
+dev	apple	Apple/09 Disco Funk/Electric Funk Synth Lead 01.caf	120	Am	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Electric Funk Synth Lead 02.caf	120	Am	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Electric Funk Synth Lead 03.caf	120	Am	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Electric Funk Synth Lead 04.caf	120	Am	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Electric Funk Synth Stabs.caf	120	Am	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Glitter Nights Beat.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/09 Disco Funk/Glitter Nights Funk Bass 01.caf	120	Am	loop-bass	loopmeta
+dev	apple	Apple/09 Disco Funk/Glitter Nights Funk Bass 02.caf	120	Am	loop-bass	loopmeta
+dev	apple	Apple/09 Disco Funk/Glitter Nights Funk Bass 03.caf	120	Am	loop-bass	loopmeta
+held	apple	Apple/09 Disco Funk/Glitter Nights Funk Guitar 01.caf	120	Am	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Glitter Nights Funk Guitar 02.caf	120	Am	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Glitter Nights Funk Guitar 03.caf	120	Am	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Glitter Nights Synth Bass 01.caf	120	Am	loop-bass	loopmeta
+held	apple	Apple/09 Disco Funk/Glitter Nights Synth Bass 02.caf	120	Am	loop-bass	loopmeta
+held	apple	Apple/09 Disco Funk/Glitter Nights Synth Chords 01.caf	120	Am	loop-keyboards	loopmeta
+held	apple	Apple/09 Disco Funk/Glitter Nights Synth Chords 02.caf	120	Am	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Glitter Nights Synth Pad.caf	120	Am	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Glitter Nights Synth Swell 01.caf	120	Am	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Glitter Nights Synth Swell 02.caf	120	Am	loop-keyboards	loopmeta
+held	apple	Apple/09 Disco Funk/Hang Tight Bass 01.caf	116	Em	loop-bass	loopmeta
+held	apple	Apple/09 Disco Funk/Hang Tight Bass 02.caf	116	Em	loop-bass	loopmeta
+held	apple	Apple/09 Disco Funk/Hang Tight Bass 03.caf	116	Em	loop-bass	loopmeta
+held	apple	Apple/09 Disco Funk/Hang Tight Bass 04.caf	116	Em	loop-bass	loopmeta
+dev	apple	Apple/09 Disco Funk/Hang Tight Beat 01.caf	116	-	loop-drums	loopmeta
+dev	apple	Apple/09 Disco Funk/Hang Tight Chords 01.caf	116	Em	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Hang Tight Chords 02.caf	116	Em	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Hang Tight Chords 03.caf	116	Em	loop-keyboards	loopmeta
+held	apple	Apple/09 Disco Funk/Hang Tight Guitar 01.caf	116	Em	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Hang Tight Guitar 02.caf	116	Em	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Hang Tight Hi-Hat Topper.caf	116	-	loop-drums	loopmeta
+dev	apple	Apple/09 Disco Funk/Hang Tight Synth Arp 01.caf	116	Em	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Hang Tight Synth Arp 02.caf	116	Am	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Hang Tight Synth Bass 01.caf	116	Am	loop-bass	loopmeta
+dev	apple	Apple/09 Disco Funk/Hang Tight Synth Bass 02.caf	116	Em	loop-bass	loopmeta
+dev	apple	Apple/09 Disco Funk/Hang Tight Synth Riser FX.caf	77.33	Em	loop-sound effect	loopmeta
+held	apple	Apple/09 Disco Funk/Hot Pursuit Bass 01.caf	116	Em	loop-bass	loopmeta
+held	apple	Apple/09 Disco Funk/Hot Pursuit Bass 02.caf	116	Em	loop-bass	loopmeta
+held	apple	Apple/09 Disco Funk/Hot Pursuit Bass 03.caf	116	Em	loop-bass	loopmeta
+held	apple	Apple/09 Disco Funk/Hot Pursuit Bass 04.caf	116	Em	loop-bass	loopmeta
+held	apple	Apple/09 Disco Funk/Hot Pursuit Bass 05.caf	116	Em	loop-bass	loopmeta
+dev	apple	Apple/09 Disco Funk/Hot Pursuit Guitar 01.caf	116	Em	loop-guitars	loopmeta
+dev	apple	Apple/09 Disco Funk/Hot Pursuit Guitar 02.caf	116	Em	loop-guitars	loopmeta
+dev	apple	Apple/09 Disco Funk/Hot Pursuit Guitar 03.caf	116	Em	loop-guitars	loopmeta
+dev	apple	Apple/09 Disco Funk/Hot Pursuit Guitar 04.caf	116	Em	loop-guitars	loopmeta
+dev	apple	Apple/09 Disco Funk/Hot Pursuit Guitar 05.caf	116	Em	loop-guitars	loopmeta
+dev	apple	Apple/09 Disco Funk/Hot Pursuit Guitar 06.caf	116	Em	loop-guitars	loopmeta
+dev	apple	Apple/09 Disco Funk/Inferno Disco Electric Piano 01.caf	120	Am	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Inferno Disco Electric Piano 02.caf	120	Am	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Inferno Disco Guitar.caf	120	Am	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Instant Disco Guitar.caf	120	Fm	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Liquid Funk Synth Bass 01.caf	116	Em	loop-bass	loopmeta
+held	apple	Apple/09 Disco Funk/Liquid Funk Synth Bass 02.caf	116	Em	loop-bass	loopmeta
+dev	apple	Apple/09 Disco Funk/Mysterious Funk Synth Pad.caf	116	Em	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Mysterious Funk Synth Swell 01.caf	116	Em	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Mysterious Funk Synth Swell 02.caf	116	Em	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Mysterious Funk Synth Swell 03.caf	116	Em	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Mysterious Funk Synth Swell 04.caf	116	Em	loop-keyboards	loopmeta
+held	apple	Apple/09 Disco Funk/Mysterious Funk Vox Synth 01.caf	116	Em	loop-vocals	loopmeta
+held	apple	Apple/09 Disco Funk/Mysterious Funk Vox Synth 02.caf	116	Em	loop-vocals	loopmeta
+held	apple	Apple/09 Disco Funk/Neon Light Beat 01.caf	116	Em	loop-drums	loopmeta
+held	apple	Apple/09 Disco Funk/Neon Light Beat 02.caf	116	Em	loop-drums	loopmeta
+held	apple	Apple/09 Disco Funk/Neon Light Guitar 01.caf	116	Am	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Neon Light Guitar 02.caf	116	Am	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Neon Light Guitar 03.caf	116	Am	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Neon Light Guitar 04.caf	116	Am	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Neon Light Guitar 05.caf	116	Em	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Neon Light Guitar 06.caf	116	Am	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Neon Light Keys 01.caf	116	Am	loop-keyboards	loopmeta
+held	apple	Apple/09 Disco Funk/Neon Light Keys 02.caf	116	Am	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Neon Light Percussion Topper.caf	116	Em	loop-drums	loopmeta
+held	apple	Apple/09 Disco Funk/Neon Light Synth Bass 01.caf	116	Am	loop-bass	loopmeta
+held	apple	Apple/09 Disco Funk/Neon Light Synth Bass 02.caf	116	Am	loop-bass	loopmeta
+held	apple	Apple/09 Disco Funk/Paradise Disco Electric Piano.caf	125	Em	loop-keyboards	loopmeta
+held	apple	Apple/09 Disco Funk/Paradise Disco Guitar 01.caf	125	Em	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Paradise Disco Guitar 02.caf	125	Em	loop-guitars	loopmeta
+dev	apple	Apple/09 Disco Funk/Peace Out Electric Piano.caf	115	Am	loop-keyboards	loopmeta
+held	apple	Apple/09 Disco Funk/Peace Out Guitar.caf	115	Am	loop-guitars	loopmeta
+dev	apple	Apple/09 Disco Funk/Polyester Boogie Bass 01.caf	120	Em	loop-bass	loopmeta
+held	apple	Apple/09 Disco Funk/Polyester Boogie Clav.caf	120	Em	loop-keyboards	loopmeta
+held	apple	Apple/09 Disco Funk/Polyester Boogie Guitar.caf	120	Em	loop-guitars	loopmeta
+dev	apple	Apple/09 Disco Funk/Shining Star Bass 01.caf	120	Gm	loop-bass	loopmeta
+held	apple	Apple/09 Disco Funk/Shining Star Electric Piano 01.caf	120	Gm	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Shining Star Guitar 01.caf	120	Gm	loop-guitars	loopmeta
+dev	apple	Apple/09 Disco Funk/Side Stepping Electric Piano.caf	125	Dm	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Side Stepping Guitar.caf	125	Dm	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Side to Side Guitar.caf	115	Fm	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Sky Lounge Bass.caf	115	Em	loop-bass	loopmeta
+held	apple	Apple/09 Disco Funk/Sky Lounge Electric Piano 01.caf	115	Em	loop-keyboards	loopmeta
+held	apple	Apple/09 Disco Funk/Sky Lounge Electric Piano 02.caf	115	Em	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Sky Lounge Wah Guitar.caf	115	Em	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Smooth Wah Guitar.caf	115	Bm	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Southside Funk Electric Piano.caf	125	Gm	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Southside Funk Wah Guitar.caf	125	Gm	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Starlight Disco Electric Piano.caf	125	Fm	loop-keyboards	loopmeta
+held	apple	Apple/09 Disco Funk/Starlight Disco Guitar.caf	125	Fm	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Strat Disco Guitar.caf	125	Cm	loop-guitars	loopmeta
+dev	apple	Apple/09 Disco Funk/Strobe Lights Electric Piano.caf	125	Gm	loop-keyboards	loopmeta
+held	apple	Apple/09 Disco Funk/Strobe Lights Guitar.caf	125	Gm	loop-guitars	loopmeta
+dev	apple	Apple/09 Disco Funk/Throwback Funk Beat 01.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/09 Disco Funk/Throwback Funk Beat 03.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/09 Disco Funk/Throwback Funk Beat 05.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/09 Disco Funk/Throwback Funk Brass 01.caf	120	Am	loop-horn-wind	loopmeta
+dev	apple	Apple/09 Disco Funk/Throwback Funk Brass 02.caf	120	Am	loop-horn-wind	loopmeta
+dev	apple	Apple/09 Disco Funk/Throwback Funk Synth Bass.caf	120	Am	loop-bass	loopmeta
+dev	apple	Apple/09 Disco Funk/Throwback Funk Synth FX.caf	120	Am	loop-keyboards	loopmeta
+held	apple	Apple/09 Disco Funk/Throwback Guitar.caf	115	Dm	loop-guitars	loopmeta
+dev	apple	Apple/09 Disco Funk/Uplifting Disco Electric Piano.caf	125	Bm	loop-keyboards	loopmeta
+held	apple	Apple/09 Disco Funk/Uptown Club Guitar.caf	125	Fm	loop-guitars	loopmeta
+held	apple	Apple/09 Disco Funk/Velvet Lounge Clav.caf	115	Bm	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Velvet Lounge Electric Piano.caf	115	Bm	loop-keyboards	loopmeta
+dev	apple	Apple/09 Disco Funk/Velvet Lounge Guitar.caf	115	Bm	loop-guitars	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Big Cow Bell Disco Break.caf	120	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Big Tom Break.caf	102	-	loop-drums	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Boomy Tom Break.caf	120	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Bristol Deep Break.caf	65	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Clave Funk Break.caf	92	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Conga Madness Break.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Crispy Vintage Funk Break.caf	135	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Dark Hall Break.caf	82	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Deep Snare Break.caf	73	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Disco Classic Break 01.caf	110	-	loop-drums	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Distant Voices Break.caf	80	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Double Dutch Disco 01.caf	110	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Double Kick Disco Break.caf	105	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Driving Ride Break.caf	110	-	loop-drums	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Dry Disco Break.caf	112	-	loop-drums	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Freestyle Conga Break.caf	120	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Funky Bell Break.caf	110	-	loop-drums	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Funky Echo Break.caf	92	-	loop-drums	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Get Funky Break.caf	112	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Guiro Funk Break.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Heavy Toms Break.caf	92	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Massive Funk Break.caf	100	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Midnight Break.caf	76	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Rattle Disco Break 01.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Rattle Snare Topper.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Rimshot Dub Break.caf	73	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Rolling Break.caf	82	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Roomy Snare Break.caf	110	-	loop-drums	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Shakers Delight Break.caf	115	-	loop-drums	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Simple Snap Topper.caf	110	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Simple Vintage Topper.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Snare Drum Fill 01.caf	105	-	loop-drums	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Snare Drum Fill 03.caf	110	-	loop-drums	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Snare Drum Fill 05.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Snare Hall Disco Break.caf	115	-	loop-drums	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Snare Space Disco Break.caf	128	-	loop-drums	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Squeaky Dub Break.caf	82	-	loop-drums	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Steady Beat Break.caf	112	-	loop-drums	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Sticky Funk Break.caf	110	-	loop-drums	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Straight Disco Break.caf	114	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Sweeping Flange Break.caf	110	-	loop-drums	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Tamborine Funk Break.caf	92	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Tense Snare Break.caf	110	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Thick Hats Break.caf	110	-	loop-drums	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Tight Funk Break.caf	127	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Tricky Snare Break.caf	82	-	loop-drums	loopmeta
+dev	apple	Apple/10 Vintage Breaks/Upbeat Funk Break.caf	112	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Vintage Sidestick Topper.caf	92	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Wah Wah Conga Topper.caf	120	-	loop-drums	loopmeta
+held	apple	Apple/10 Vintage Breaks/Wet Disco Break.caf	112	-	loop-drums	loopmeta
+dev	apple	Apple/11 Blues Garage/Back Alley Bass.caf	80	Dm	loop-bass	loopmeta
+held	apple	Apple/11 Blues Garage/Back Alley Lead Guitar 01.caf	80	Dm	loop-guitars	loopmeta
+held	apple	Apple/11 Blues Garage/Back Alley Lead Guitar 02.caf	80	Dm	loop-guitars	loopmeta
+dev	apple	Apple/11 Blues Garage/Back Alley Rhythm Guitar 01.caf	80	Dm	loop-guitars	loopmeta
+dev	apple	Apple/11 Blues Garage/Back Alley Rhythm Guitar 02.caf	80	Dm	loop-guitars	loopmeta
+dev	apple	Apple/11 Blues Garage/Descending Blues Bass 01.caf	110	Gm	loop-bass	loopmeta
+dev	apple	Apple/11 Blues Garage/Descending Blues Bass 02.caf	110	Gm	loop-bass	loopmeta
+dev	apple	Apple/11 Blues Garage/Descending Blues Guitar.caf	110	Gm	loop-guitars	loopmeta
+dev	apple	Apple/11 Blues Garage/Detroit Garage Bass 01.caf	110	Gm	loop-bass	loopmeta
+dev	apple	Apple/11 Blues Garage/Detroit Garage Bass 02.caf	110	Gm	loop-bass	loopmeta
+held	apple	Apple/11 Blues Garage/Detroit Garage Guitar 01.caf	110	Gm	loop-guitars	loopmeta
+held	apple	Apple/11 Blues Garage/Detroit Garage Guitar 02.caf	110	Gm	loop-guitars	loopmeta
+held	apple	Apple/11 Blues Garage/Dusky Blues Bass.caf	70	Em	loop-bass	loopmeta
+held	apple	Apple/11 Blues Garage/Dusky Blues Guitar Chords.caf	70	Em	loop-guitars	loopmeta
+held	apple	Apple/11 Blues Garage/Dusky Blues Rhythm Guitar 01.caf	70	Em	loop-guitars	loopmeta
+held	apple	Apple/11 Blues Garage/Dusky Blues Rhythm Guitar 02.caf	70	Em	loop-guitars	loopmeta
+held	apple	Apple/11 Blues Garage/Dusky Blues Rhythm Guitar 03.caf	70	Em	loop-guitars	loopmeta
+held	apple	Apple/11 Blues Garage/Dusky Blues Rhythm Guitar 04.caf	70	Em	loop-guitars	loopmeta
+dev	apple	Apple/11 Blues Garage/Everlasting Bass.caf	90	D	loop-bass	loopmeta
+dev	apple	Apple/11 Blues Garage/Everlasting Lead Guitar.caf	90	D	loop-guitars	loopmeta
+held	apple	Apple/11 Blues Garage/Everlasting Rhythm Guitar.caf	90	D	loop-guitars	loopmeta
+dev	apple	Apple/11 Blues Garage/Mississippi Mud Bass 01.caf	80	Em	loop-bass	loopmeta
+dev	apple	Apple/11 Blues Garage/Mississippi Mud Bass 02.caf	80	Em	loop-bass	loopmeta
+dev	apple	Apple/11 Blues Garage/Mississippi Mud Bass 03.caf	80	Em	loop-bass	loopmeta
+dev	apple	Apple/11 Blues Garage/Mississippi Mud Bass 04.caf	80	Em	loop-bass	loopmeta
+dev	apple	Apple/11 Blues Garage/Mississippi Mud Lead Guitar.caf	80	Em	loop-guitars	loopmeta
+held	apple	Apple/11 Blues Garage/Mississippi Mud Rhythm Guitar 01.caf	80	Em	loop-guitars	loopmeta
+held	apple	Apple/11 Blues Garage/Mississippi Mud Rhythm Guitar 02.caf	80	Em	loop-guitars	loopmeta
+held	apple	Apple/11 Blues Garage/Mississippi Mud Rhythm Guitar 03.caf	80	Em	loop-guitars	loopmeta
+held	apple	Apple/11 Blues Garage/Nonstop Blues Bass.caf	90	Bm	loop-bass	loopmeta
+held	apple	Apple/11 Blues Garage/Nonstop Blues Guitar.caf	90	Bm	loop-guitars	loopmeta
+held	apple	Apple/11 Blues Garage/Northern Hills Lead Guitar.caf	89.75	F	loop-guitars	loopmeta
+held	apple	Apple/11 Blues Garage/Northern Hills Rhythm Guitar 01.caf	90	F	loop-guitars	loopmeta
+held	apple	Apple/11 Blues Garage/Northern Hills Rhythm Guitar 02.caf	90	F	loop-guitars	loopmeta
+held	apple	Apple/11 Blues Garage/Raw Garage Bass 01.caf	110	Em	loop-bass	loopmeta
+held	apple	Apple/11 Blues Garage/Raw Garage Bass 02.caf	110	Em	loop-bass	loopmeta
+held	apple	Apple/11 Blues Garage/Raw Garage Guitar.caf	110	Em	loop-guitars	loopmeta
+held	apple	Apple/11 Blues Garage/Sly Dog Bass 01.caf	90	Am	loop-bass	loopmeta
+held	apple	Apple/11 Blues Garage/Sly Dog Bass 02.caf	90	Am	loop-bass	loopmeta
+held	apple	Apple/11 Blues Garage/Sly Dog Lead Guitar 01.caf	90	Am	loop-guitars	loopmeta
+held	apple	Apple/11 Blues Garage/Sly Dog Lead Guitar 02.caf	90	Am	loop-guitars	loopmeta
+held	apple	Apple/11 Blues Garage/Sly Dog Lead Guitar 03.caf	90	Am	loop-guitars	loopmeta
+held	apple	Apple/11 Blues Garage/Sly Dog Rhythm Guitar.caf	90	Am	loop-guitars	loopmeta
+dev	apple	Apple/11 Blues Garage/Sweet Embrace Bass.caf	90	E	loop-bass	loopmeta
+dev	apple	Apple/11 Blues Garage/Sweet Embrace Guitar 01.caf	90	E	loop-guitars	loopmeta
+dev	apple	Apple/11 Blues Garage/Sweet Embrace Guitar 02.caf	90	E	loop-guitars	loopmeta
+dev	apple	Apple/11 Blues Garage/Sweet Embrace Guitar 03.caf	90	E	loop-guitars	loopmeta
+dev	apple	Apple/11 Blues Garage/Texas Roadhouse Slide Guitar.caf	100	D	loop-guitars	loopmeta
+held	apple	Apple/13 Drummer/Anton - Bouncin.caf	85	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Anton - Chi Town.caf	85	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Anton - Entourage.caf	85	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Anton - In the Club.caf	85	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Anton - Jetsetter.caf	85	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Anton - To the Top.caf	85	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Dez - Bridge.caf	70	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Dez - Concrete Jungle.caf	70	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Dez - Drop it Low.caf	70	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Dez - Miami Bass.caf	70	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Dez - Roll Deep.caf	70	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Dez - Street Lights.caf	70	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Dez - Trillionaire.caf	70	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Duncan - Bridge.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Duncan - Circuit Breaker.caf	120	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Duncan - Hybrid Machine.caf	120	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Duncan - Just Dance.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Duncan - Outro.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Duncan - Radio Heart.caf	120	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Duncan - Verse.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Jasper - Bridge.caf	140	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Jasper - Digital Graffiti.caf	140	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Jasper - Full Stop.caf	140	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Jasper - Kick Stepper.caf	140	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Jasper - Outro.caf	140	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Jasper - The Drop.caf	140	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Julian - Bridge.caf	120	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Julian - Furious Four.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Julian - Ibiza Sunrise.caf	120	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Julian - Outro.caf	120	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Julian - Star Burst.caf	120	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Julian - Verse.caf	120	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Julian - Wildfire.caf	120	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Kyle - Chorus.caf	110	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Kyle - Echo Park.caf	110	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Kyle - Half-pipe.caf	110	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Kyle - Mixtape.caf	110	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Kyle - Ocean Boulevard.caf	110	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Kyle - Paper Hearts.caf	110	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Leah - After Hours.caf	125	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Leah - Bridge.caf	125	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Leah - Chorus.caf	125	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Leah - Insomniac.caf	125	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Leah - Lights Out.caf	125	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Leah - Perpetual Motion.caf	125	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Leah - Verse.caf	125	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Magnus - Bridge.caf	128	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Magnus - Euphoria.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Magnus - Glowstick.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Magnus - Just Shufflin.caf	128	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Magnus - Outro.caf	128	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Magnus - Touch the Sky.caf	128	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Maurice - 180-Gram.caf	85	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Maurice - Chorus.caf	85	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Maurice - Higher Learning.caf	85	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Maurice - Keep it Real.caf	85	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Maurice - Outro.caf	85	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Maurice - Tipping Point.caf	85	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Maurice - Wheels of Steel.caf	85	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Maya - Bridge.caf	100	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Maya - Dot Matrix.caf	100	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Maya - Hoverboard.caf	100	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Maya - Laser Disc.caf	100	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Maya - Outro.caf	100	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Maya - Request Line.caf	100	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Ronnie - Aftershock.caf	70	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Ronnie - Bring the Noise.caf	70	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Ronnie - Digital Fusion.caf	70	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Ronnie - Hardstyle.caf	70	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Ronnie - Outro.caf	70	-	loop-drums	loopmeta
+held	apple	Apple/13 Drummer/Ronnie - Slow Burn.caf	70	-	loop-drums	loopmeta
+dev	apple	Apple/13 Drummer/Ronnie - Verse.caf	70	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/60s Shuffle Drumset 03.caf	125	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/60s Shuffle Fill 07.caf	125	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/70s Electric Piano 06.caf	90	C	loop-keyboards	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/70s Electric Piano 08.caf	90	C	loop-keyboards	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/70s Electric Piano 11.caf	90	C	loop-keyboards	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Abstract Atmosphere 015.caf	75	Am	loop-keyboards	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Academy All.caf	84.4	D	loop-strings	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Acoustic Slide 02.caf	104.96	Gm	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Afganistan Sand Rabab 05.caf	102.84	C	loop-strings	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Afganistan Sand Rabab 06.caf	102.4	C	loop-strings	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Afganistan Sand Rabab 09.caf	105.18	C	loop-strings	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/African King Ensemble 01.caf	110	Am	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/African King Ensemble 02.caf	110	Am	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/African King Gyl 01.caf	110	Am	loop-mallets	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/African King Gyl 02.caf	110	Am	loop-mallets	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/African Mist Kpanlogo 01.caf	102	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/African Talking Drum 05.caf	80	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Alt Pop Acoustic 01.caf	90	E	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Alt Pop Acoustic 02.caf	90	E	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Alt Pop Acoustic 03.caf	90	E	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Alternative Acoustic 07.caf	90	F#m	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Alternative Acoustic 08.caf	90	F#	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Alternative Acoustic 09.caf	90	F#	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Bar Band Basic Drumset 01.caf	100	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Bar Band Basic Drumset 05.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Bar Band Basic Drumset 09.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Bar Band Basic Drumset 13.caf	120	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Bebop Drumset 08.caf	135	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Bebop Drumset 10.caf	135	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Big Maracas 01.caf	110	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Big Maracas 08.caf	110	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Blues Harmonica 08.caf	85.86	C	loop-horn-wind	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Blues Harmonica 10.caf	93.07	C	loop-horn-wind	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Bongo Groove 02.caf	95.99	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Brazilian Cavaquinho 01.caf	105	D	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Brazilian Cavaquinho 02.caf	105	D	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Bright Tone Bass 02.caf	100	Em	loop-bass	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Bright Tone Bass 09.caf	100	Em	loop-bass	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Brush Train Drumset 01.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Brush Train Drumset 05.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Brush Train Drumset 15.caf	120.1	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Brush Train Fill 04.caf	120	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Cheerful Mandolin 07.caf	99.95	E	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Cheerful Mandolin 10.caf	99.95	E	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Cheerful Mandolin 23.caf	105	A	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Chicago Blues Drumset 01.caf	125	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Classic Attitude Rock 01.caf	80	Em	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Classic Attitude Rock 02.caf	80	Em	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Classic Attitude Rock 18.caf	80	Em	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Clave Funk Break.caf	92	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Combustion Bass Guitar.caf	126	Em	loop-bass	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Combustion Guitar Noise FX.caf	126	Em	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Combustion Rhythm Guitar.caf	126	Em	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Conga Groove 04.caf	120	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Conga Groove 08.caf	96	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Contemplative Synth 01.caf	130	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Courier Strings.caf	75	Dm	loop-strings	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Cowbell Groove 01.caf	96	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Crowd Groove Drumset 02.caf	105	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Crowd Groove Fill 04.caf	105	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Cuban Son Horns 01.caf	100	C	loop-horn-wind	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Cuban Son Sax 01.caf	100	C	loop-horn-wind	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Cuban Son Sax 02.caf	100	C	loop-horn-wind	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Cuban Son Sax 03.caf	100	C	loop-horn-wind	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Cuban Timba Conga 01.caf	90	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Cuban Timba Conga 10.caf	90	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Deep Electric Piano 01.caf	100	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Delta Blues Solo 06.caf	80	E	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Delta Blues Solo 08.caf	80	Em	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Double Punk Drumset 02.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Down Home Dobro 01.caf	70	E	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Down Home Dobro 02.caf	70	E	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Downtempo Bounce Beat 01.caf	95.21	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Downtempo Groove Bass 01.caf	110	Cm	loop-bass	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Downtempo Groove Bass 02.caf	110	Cm	loop-bass	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Downtempo Groove Bass 03.caf	110	Cm	loop-bass	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Eastern Storm Oud 01.caf	81	Dm	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Egyptian Nile Darbouka 01.caf	100.78	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Egyptian Nile Darbouka 03.caf	100.63	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Essential Drumset 02.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Euro Chord Slicer 02.caf	90.04	Em	loop-keyboards	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Euro Hero Synth 02.caf	138	C	loop-keyboards	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Euro Odd Mechanical Synth.caf	99.99	Am	loop-keyboards	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Euro Pad Slicer FX.caf	129.98	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Euro Party Slicer FX.caf	130.01	D#m	loop-keyboards	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Euro Vox Slicer 01.caf	129.95	A#m	loop-keyboards	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Fireplace All.caf	85	Cm	loop-strings	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Four on Floor Drumset 05.caf	120	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Four on Floor Fill 08.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Front Porch Dobro 01.caf	89.96	A	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Front Porch Dobro 02.caf	89.96	A	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Funked Out Drumset 01.caf	105	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Funked Out Drumset 05.caf	105	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Funked Out Fill 03.caf	105	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Funky Electric Piano 09.caf	95.09	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Funky Shuffle Drumset 10.caf	98	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Funky Shuffle Drumset 22.caf	98	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Gearbox Bass Guitar.caf	126	Em	loop-bass	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Gearbox Lead Guitar.caf	126	Em	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Gearbox Muted Guitar.caf	126	Em	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Gearbox Rhythm Guitar.caf	126	Em	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Gospel Improv 01.caf	123	C#m	loop-vocals	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Groovy Electric Bass 06.caf	110.01	C	loop-bass	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Half Time Funk Drumset 01.caf	105	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Headbop Drumset 01.caf	110	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Headbop Drumset 03.caf	110	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Hip Hop Gentle Piano.caf	90	Cm	loop-keyboards	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Hip Hop Mic It Bass 01.caf	90	Em	loop-bass	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Hip Hop Mystery Guitar.caf	90	Em	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Hot Rod Bass Guitar.caf	126	Em	loop-bass	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Hot Rod Echo Guitar FX.caf	126	Em	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Hot Rod Lead Guitar 01.caf	126	Em	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Hot Rod Lead Guitar 02.caf	126	Em	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Hot Rod Rhythm Guitar.caf	126	Em	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/House Fever Hot Guitar 01.caf	125	Cm	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/House Fever Hot Guitar 02.caf	125	Cm	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/House Fever Hot Guitar 04.caf	125	Cm	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/House For You Guitar 02.caf	125	Dm	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/House Heat Up Guitar 01.caf	125	Fm	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/House Heat Up Guitar 02.caf	125	Fm	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Indian Chant Subahar 01.caf	86.3	G	loop-strings	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Indian Chant Subahar 02.caf	85.78	G	loop-strings	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Indian Chant Subahar 09.caf	120.52	G	loop-strings	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Indian Dholak Drum 03.caf	109.97	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Indian Khol Drum 01.caf	109.98	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Indian Pakawaj Drum 04.caf	70	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Indian Rajah Sarod 01.caf	83.72	D#m	loop-strings	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Indie Rock Riffing 01.caf	110	E	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Indie Rock Riffing 02.caf	110	E	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Indie Rock Riffing 04.caf	110	E	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Indie Rock Riffing 06.caf	110	E	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Jam Band Basic Drumset 02.caf	105	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Jam Band Basic Fill 06.caf	105	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Jazz Hustle Flute 01.caf	120	Dm	loop-horn-wind	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Jazz Hustle Flute 02.caf	120	Dm	loop-horn-wind	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Jazz Hustle Flute 03.caf	120	Dm	loop-horn-wind	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Jazz Hustle Flute 04.caf	120	Dm	loop-horn-wind	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Jazz Hustle Guitar 01.caf	120	Dm	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Jazz Hustle Guitar 02.caf	120	Dm	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Jazz Hustle Sax 01.caf	120	Dm	loop-horn-wind	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Jazz Hustle Sax 02.caf	120	Dm	loop-horn-wind	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Kick Start Bass Guitar.caf	126	Em	loop-bass	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Kick Start Lead Guitar.caf	126	Em	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Kick Start Rhythm Guitar.caf	126	Em	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Latin Bembe Cowbell.caf	85	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Latin Danza Drumset 02.caf	105	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Latin Day Bongo 05.caf	150	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Latin Day Conga 01.caf	150	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Latin Day Guiro 04.caf	150	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Latin Day Horns 03.caf	150	F	loop-horn-wind	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Latin Day Horns 04.caf	150	F	loop-horn-wind	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Latin Day Horns 05.caf	150	F	loop-horn-wind	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Latin Dulce Percussion 02.caf	103.33	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Latin Fire Percussion 03.caf	80	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Latin Triangle 02.caf	88.61	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Magna Strings.caf	85	Fm	loop-strings	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Metro All.caf	80	Am	loop-strings	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Modern Rock Guitar 07.caf	90	Dm	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Modern Rock Guitar 08.caf	90	Gm	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Modern Rock Guitar 09.caf	90	Dm	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Modern Rock Guitar 10.caf	90	F	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Nitro Power Bass Guitar.caf	126	Em	loop-bass	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Nitro Power Guitar Stabs.caf	126	Em	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Nitro Power Lead Guitar.caf	126	Em	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Nitro Power Rhythm Guitar.caf	126	Em	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/NuJazz Jam Guitar 04.caf	120	Em	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/NuJazz Jam Guitar 05.caf	120	Em	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Oath All.caf	90	Cm	loop-strings	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Orchestra Strings 27.caf	100	Cm	loop-strings	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Orchestra Strings 34.caf	95	Cm	loop-strings	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Orchestra Strings 84.caf	90.06	Dm	loop-strings	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Persian Market Tar 02.caf	85	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Power Low Strings 05.caf	75	F#m	loop-strings	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Power Low Strings 08.caf	77	Cm	loop-strings	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Pursuit All.caf	70	A#m	loop-strings	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Razor Rock Bass Guitar 01.caf	126	Em	loop-bass	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Razor Rock Bass Guitar 02.caf	126	Em	loop-bass	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Razor Rock Bass Guitar 03.caf	126	Em	loop-bass	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Razor Rock Bass Guitar 04.caf	126	Em	loop-bass	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Razor Rock Lead Guitar 01.caf	126	Em	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Razor Rock Lead Guitar 02.caf	126	Em	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Razor Rock Lead Guitar 03.caf	126	Em	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Razor Rock Lead Guitar 04.caf	126	Em	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Razor Rock Rhythm Guitar 01.caf	126	Em	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Razor Rock Rhythm Guitar 02.caf	126	Em	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Razor Rock Rhythm Guitar 03.caf	126	Em	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Remix Air Slicer FX 01.caf	113.59	C#m	loop-keyboards	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Remix Air Slicer FX 03.caf	120.6	Dm	loop-keyboards	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Remix Air Slicer FX 04.caf	140	Dm	loop-keyboards	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Remix Chord Slicer FX 03.caf	130.58	C	loop-keyboards	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Remix Chord Slicer FX 06.caf	129.78	C	loop-keyboards	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Remix Chord Slicer FX 21.caf	90.02	G	loop-keyboards	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Remix Conga Fever 02.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Remix Conga Fever 04.caf	120	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Remix Egyptian FX 01.caf	98	Em	loop-strings	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Remix Egyptian FX 02.caf	98	Em	loop-strings	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Remix Mercury Drops Pad.caf	170	Fm	loop-keyboards	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Remix Shaker 02.caf	120	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Remix Shimmery Synth 08.caf	116.12	Cm	loop-keyboards	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Remix Slicer FX 01.caf	124.02	F	loop-keyboards	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Remix Warm Vocoder.caf	124	Am	loop-keyboards	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/RnB Horn Section 02.caf	110.17	Em	loop-horn-wind	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Saber All.caf	95	Dm	loop-strings	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Shaker 01.caf	93.92	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Showdown All.caf	90	Dm	loop-strings	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Sidestick Drumset 03.caf	120	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Solid 70s Drumset 04.caf	95	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Solid 70s Drumset 07.caf	95	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Solid 70s Drumset 16.caf	95	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Solid 70s Fill 08.caf	95	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Solid 70s Fill 23.caf	95	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Southern Rock Organ 01.caf	62	C	loop-keyboards	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Southern Rock Organ 03.caf	62	C	loop-keyboards	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Southern Rock Organ 04.caf	62	C	loop-keyboards	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Southern Rock Organ 05.caf	62	C	loop-keyboards	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Southern Rock Organ 06.caf	62	C	loop-keyboards	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Southern Rock Organ 07.caf	62	C	loop-keyboards	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Streamlined Bass Guitar.caf	126	Em	loop-bass	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Streamlined Lead Guitar.caf	126	Em	loop-guitars	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Streamlined Rhythm Guitar.caf	126	Em	loop-guitars	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Synth Array 11.caf	99.2	Cm	loop-keyboards	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Tambourine 01.caf	130.02	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Tambourine 03.caf	120	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Tambourine 05.caf	75	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Tambourine 07.caf	110.01	-	loop-drums	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Tambourine 10.caf	110	-	loop-drums	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Techno Bass 01.caf	120.01	Dm	loop-bass	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Upbeat Electric Piano 01.caf	85	Cm	loop-keyboards	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Upbeat Electric Piano 02.caf	85	Cm	loop-keyboards	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Upright Funk Bass 01.caf	100	Cm	loop-bass	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Upright Funk Bass 09.caf	95	F	loop-bass	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Vendetta All.caf	85	F#m	loop-strings	loopmeta
+held	apple	Apple/Apple Loops for GarageBand/Vendetta Strings.caf	85	F#m	loop-strings	loopmeta
+dev	apple	Apple/Apple Loops for GarageBand/Vigilante All.caf	95	Fm	loop-strings	loopmeta
+held	mix	Apple/01 Hip Hop/Hard Ground Beat.caf + Apple/01 Hip Hop/Silky Smooth Sub Bass.caf + Apple/01 Hip Hop/Silky Smooth Synth 01.caf	60	Dm	mix	mix
+dev	mix	Apple/01 Hip Hop/Hard Ground Beat.caf + Apple/01 Hip Hop/Hard Ground Brass.caf + Apple/01 Hip Hop/Hard Ground Octave Lead.caf	60	Fm	mix	mix
+dev	mix	Apple/01 Hip Hop/Epoch Beat.caf + Apple/01 Hip Hop/Epoch Sub Bass.caf + Apple/01 Hip Hop/Epoch Ambient Piano.caf	61	C#m	mix	mix
+dev	mix	Apple/01 Hip Hop/Watchful Eye Beat.caf + Apple/01 Hip Hop/Watchful Eye Sub Bass.caf + Apple/01 Hip Hop/Watchful Eye Bell Synth.caf	64	Dm	mix	mix
+dev	mix	Apple/01 Hip Hop/Stealth Beat.caf + Apple/01 Hip Hop/Stealth Sub Bass.caf + Apple/01 Hip Hop/Stealth Synth Arp.caf	65	C#m	mix	mix
+dev	mix	Apple/01 Hip Hop/Stealth Beat.caf + Apple/01 Hip Hop/Safe And Sound Sub Bass.caf + Apple/01 Hip Hop/Safe And Sound Brass.caf	65	D#m	mix	mix
+dev	mix	Apple/01 Hip Hop/Distant Memories Beat.caf + Apple/01 Hip Hop/Distant Memories Sub Bass.caf + Apple/01 Hip Hop/Distant Memories Brass.caf	66.5	A#m	mix	mix
+dev	mix	Apple/01 Hip Hop/Wonderland Beat.caf + Apple/01 Hip Hop/Wonderland Sub Bass.caf + Apple/01 Hip Hop/Wonderland Pizzicato Strings.caf	67	Dm	mix	mix
+held	mix	Apple/01 Hip Hop/Fantasy Beat.caf + Apple/01 Hip Hop/Fantasy Sub Bass.caf + Apple/01 Hip Hop/Fantasy Synth 01.caf	68.5	Gm	mix	mix
+held	mix	Apple/01 Hip Hop/Yearning Beat.caf + Apple/01 Hip Hop/Incoming Sub Bass.caf + Apple/01 Hip Hop/Incoming Synth Arp.caf	70	Dm	mix	mix
+dev	mix	Apple/01 Hip Hop/Knuckle Down Beat 02.caf + Apple/01 Hip Hop/Yearning Sub Bass.caf + Apple/01 Hip Hop/Yearning Acoustic Guitar.caf	70	Am	mix	mix
+held	mix	Apple/01 Hip Hop/Dirty Beat.caf + Apple/01 Hip Hop/Dirty Sub Bass.caf + Apple/01 Hip Hop/Dirty Synth.caf	71.5	D	mix	mix
+dev	mix	Apple/01 Hip Hop/Early Days Beat.caf + Apple/01 Hip Hop/Early Days Piano.caf + Apple/01 Hip Hop/Early Days Synth Lead.caf	72	A#m	mix	mix
+dev	mix	Apple/01 Hip Hop/Find Strength Beat.caf + Apple/01 Hip Hop/Find Strength Sub Bass.caf + Apple/01 Hip Hop/Find Strength Piano.caf	73	C	mix	mix
+held	mix	Apple/01 Hip Hop/Sunrise Beat.caf + Apple/01 Hip Hop/Sunrise Sub Bass.caf + Apple/01 Hip Hop/Sunrise Keys.caf	73.5	F#m	mix	mix
+held	mix	Apple/01 Hip Hop/Slow Motion Beat 02.caf + Apple/01 Hip Hop/City Lights Brass.caf + Apple/01 Hip Hop/Slow Motion Phaser Guitar.caf	75	G#m	mix	mix
+held	mix	Apple/01 Hip Hop/Full Moon Beat.caf + Apple/01 Hip Hop/Full Moon Piano.caf + Apple/01 Hip Hop/Full Moon Synth Lead.caf	77	F#m	mix	mix
+dev	mix	Apple/01 Hip Hop/Ambition Beat.caf + Apple/01 Hip Hop/Sophistication Pizzicato Strings.caf + Apple/01 Hip Hop/Sophistication String Pad.caf	80	D#m	mix	mix
+held	mix	Apple/01 Hip Hop/Regrets Beat.caf + Apple/01 Hip Hop/Regrets Sub Bass.caf + Apple/01 Hip Hop/Regrets Piano.caf	80	Fm	mix	mix
+dev	mix	Apple/01 Hip Hop/Legend Beat.caf + Apple/01 Hip Hop/Legend Sub Bass.caf + Apple/01 Hip Hop/Legend Dark Synth Pad.caf	80.5	Cm	mix	mix
+dev	mix	Apple/01 Hip Hop/Final Straw Beat.caf + Apple/01 Hip Hop/Rise Up Bass.caf + Apple/01 Hip Hop/Rise Up Organ.caf	81	C	mix	mix
+held	mix	Apple/01 Hip Hop/Loose Change Beat.caf + Apple/01 Hip Hop/Longing Bass.caf + Apple/01 Hip Hop/Longing Electric Piano.caf	82	Cm	mix	mix
+dev	mix	Apple/01 Hip Hop/Rising Up Beat.caf + Apple/01 Hip Hop/Sympathy Bass.caf + Apple/01 Hip Hop/Sympathy Lead.caf	82	Em	mix	mix
+dev	mix	Apple/01 Hip Hop/Tenacious Beat.caf + Apple/01 Hip Hop/Tenacious Piano 01.caf + Apple/01 Hip Hop/Tenacious Piano 02.caf	84.5	Gm	mix	mix
+held	mix	Apple/01 Hip Hop/Spotlight Beat.caf + Apple/01 Hip Hop/Spotlight Synth Chords.caf + Apple/01 Hip Hop/Spotlight Synth Lead.caf	85	G#m	mix	mix
+dev	mix	Apple/01 Hip Hop/Empire State Beat.caf + Apple/01 Hip Hop/Empire State Horns.caf + Apple/01 Hip Hop/Empire State Piano.caf	88	Bm	mix	mix
+dev	mix	Apple/01 Hip Hop/Crossroads Beat.caf + Apple/01 Hip Hop/Crossroads Sub Bass.caf + Apple/01 Hip Hop/Crossroads Bells.caf	89	D#m	mix	mix
+dev	mix	Apple/01 Hip Hop/Perplexing Beat 01.caf + Apple/01 Hip Hop/Perplexing Sub Bass.caf + Apple/01 Hip Hop/Perplexing Synth Arp.caf	90	F#	mix	mix
+held	mix	Apple/01 Hip Hop/Brooklyn Noir Beat.caf + Apple/01 Hip Hop/Brooklyn Noir Swag Bass.caf + Apple/01 Hip Hop/Brooklyn Noir Flute.caf	92	A#m	mix	mix
+held	mix	Apple/01 Hip Hop/Street Legal Beat.caf + Apple/01 Hip Hop/Street Legal Echo Guitar.caf + Apple/01 Hip Hop/Street Legal Koto.caf	93	F#m	mix	mix
+dev	mix	Apple/01 Hip Hop/Street Legal Beat.caf + Apple/01 Hip Hop/Promises Sub Bass.caf + Apple/01 Hip Hop/Promises Bell Synth.caf	93	Bm	mix	mix
+held	mix	Apple/01 Hip Hop/Quiet Evolution Beat.caf + Apple/01 Hip Hop/Funk Era Brass.caf + Apple/01 Hip Hop/Funk Era Piano.caf	94	Cm	mix	mix
+held	mix	Apple/01 Hip Hop/Wild West Beat.caf + Apple/01 Hip Hop/Midnight Blue Sub Bass.caf + Apple/01 Hip Hop/Midnight Blue Synth.caf	94	D#m	mix	mix
+dev	mix	Apple/01 Hip Hop/Quiet Evolution Beat.caf + Apple/01 Hip Hop/Quiet Evolution Sub Bass.caf + Apple/01 Hip Hop/Quiet Evolution Synth 01.caf	94	Em	mix	mix
+held	mix	Apple/01 Hip Hop/Double Vision Beat.caf + Apple/01 Hip Hop/Intrepid Brass.caf + Apple/01 Hip Hop/Intrepid Synth.caf	95	Dm	mix	mix
+dev	mix	Apple/01 Hip Hop/Shadow Beat.caf + Apple/01 Hip Hop/Stone Cold Sub Bass.caf + Apple/01 Hip Hop/Stone Cold Orchestra Hits.caf	96	C#m	mix	mix
+held	mix	Apple/01 Hip Hop/Stone Cold Beat.caf + Apple/01 Hip Hop/Shadow Sub Bass.caf + Apple/01 Hip Hop/Shadow Synth.caf	96	D#m	mix	mix
+held	mix	Apple/01 Hip Hop/Night Sky Beat.caf + Apple/01 Hip Hop/Minds Eye Sub Bass.caf + Apple/01 Hip Hop/Minds Eye Synth Arp.caf	97	C#m	mix	mix
+held	mix	Apple/01 Hip Hop/City Nights Beat.caf + Apple/01 Hip Hop/City Nights Bass.caf + Apple/01 Hip Hop/City Nights Brass 01.caf	97	Gm	mix	mix
+dev	mix	Apple/01 Hip Hop/Afloat Beat.caf + Apple/01 Hip Hop/Afloat Sub Bass.caf + Apple/01 Hip Hop/Afloat Pad.caf	98	Cm	mix	mix
+held	mix	Apple/01 Hip Hop/Dub Deep Beat.caf + Apple/01 Hip Hop/Dub Deep Sub Bass.caf + Apple/01 Hip Hop/Dub Deep Synth.caf	99	A#m	mix	mix
+dev	mix	Apple/01 Hip Hop/Ghostly Beat.caf + Apple/01 Hip Hop/Ghostly Sub Bass.caf + Apple/01 Hip Hop/Ghostly Steel Drum.caf	100	C#m	mix	mix
+dev	mix	Apple/01 Hip Hop/Raindrops Beat.caf + Apple/01 Hip Hop/Raindrops Sub Bass.caf + Apple/01 Hip Hop/Raindrops Ping.caf	101	F#m	mix	mix
+held	mix	Apple/01 Hip Hop/Slow Drift Beat.caf + Apple/01 Hip Hop/Slow Drift Bass Synth.caf + Apple/01 Hip Hop/Slow Drift Ambient Synth.caf	101	A#m	mix	mix
+dev	mix	Apple/01 Hip Hop/Dusk Drive Beat.caf + Apple/01 Hip Hop/Dusk Drive Sub Bass.caf + Apple/01 Hip Hop/Dusk Drive Pluck.caf	104	Am	mix	mix
+dev	mix	Apple/01 Hip Hop/Rhyming Scheme Beat.caf + Apple/01 Hip Hop/Rhyming Scheme Sub Bass.caf + Apple/01 Hip Hop/Rhyming Scheme Synth Lead.caf	105	A#m	mix	mix
+dev	mix	Apple/02 Electro House/Phaser Stun Topper.caf + Apple/02 Electro House/Seismic Hammer Bass.caf + Apple/02 Electro House/Aftershock Synth Lead.caf	125	Cm	mix	mix
+held	mix	Apple/02 Electro House/Rocket Fuel Beat 03.caf + Apple/02 Electro House/Aggressive Stance Bass.caf + Apple/02 Electro House/Above And Beyond Synth.caf	128	Cm	mix	mix
+dev	mix	Apple/02 Electro House/Roomy Clap Topper.caf + Apple/02 Electro House/Quickening Bass.caf + Apple/02 Electro House/Digging Deep Synth.caf	128	C#m	mix	mix
+dev	mix	Apple/02 Electro House/Sharp Kick beat.caf + Apple/02 Electro House/Methodical Hook Bass.caf + Apple/02 Electro House/Cut Loose Synth Layers.caf	128	Dm	mix	mix
+dev	mix	Apple/02 Electro House/Sizzle Cymbal Beat.caf + Apple/02 Electro House/Complextro Machine Bass.caf + Apple/02 Electro House/Hit the Lights Layers.caf	128	Fm	mix	mix
+held	mix	Apple/02 Electro House/Static Electricity Topper 06.caf + Apple/02 Electro House/Build Up Bass.caf + Apple/02 Electro House/Action Synth.caf	128	Gm	mix	mix
+held	mix	Apple/02 Electro House/Stompy Clap Topper.caf + Apple/02 Electro House/Builder Bass.caf + Apple/02 Electro House/Cutting Theme Synth.caf	128	G#m	mix	mix
+held	mix	Apple/02 Electro House/Sweeper Beat.caf + Apple/02 Electro House/Alarming Bass.caf + Apple/02 Electro House/Amalgamate Chord Layers.caf	128	Am	mix	mix
+dev	mix	Apple/03 Dubstep/Bad Signal Beat 02.caf + Apple/03 Dubstep/Trashy Slow Bass.caf + Apple/03 Dubstep/Pleasant Synth Lead.caf	140	Cm	mix	mix
+held	mix	Apple/03 Dubstep/Clock Sync Beat 01.caf + Apple/03 Dubstep/Arguing Robot Bass.caf + Apple/03 Dubstep/Chords Aplenty Synth.caf	140	Dm	mix	mix
+held	mix	Apple/03 Dubstep/Retro Heavy Beat 01.caf + Apple/03 Dubstep/Electric Waves Bass.caf + Apple/03 Dubstep/Arcade Level Up Synth.caf	140	Am	mix	mix
+held	mix	Apple/04 Modern RnB/Hot Stuff Beat 02.caf + Apple/04 Modern RnB/Go Time Layered Bass.caf + Apple/04 Modern RnB/World Champion Synth.caf	120	Dm	mix	mix
+dev	mix	Apple/07 Chillwave/Lazy 80s Beat 02.caf + Apple/07 Chillwave/Still Life Bass.caf + Apple/07 Chillwave/Still Life Synth.caf	80	Cm	mix	mix
+held	mix	Apple/07 Chillwave/Lazy 80s Beat 02.caf + Apple/07 Chillwave/Hourglass Bass.caf + Apple/07 Chillwave/Hourglass Guitar.caf	80	Bm	mix	mix
+dev	mix	Apple/07 Chillwave/Acoustic Layers Beat 02.caf + Apple/07 Chillwave/Prismatic Bass.caf + Apple/07 Chillwave/Prismatic Guitar Chords.caf	85	C#	mix	mix
+dev	mix	Apple/07 Chillwave/Acoustic Layers Beat 02.caf + Apple/07 Chillwave/Cruiser Bass.caf + Apple/07 Chillwave/Cruiser Guitar.caf	85	F#	mix	mix
+dev	mix	Apple/07 Chillwave/Crunchy Funk 01.caf + Apple/07 Chillwave/Chill Loop Bass.caf + Apple/07 Chillwave/Chill Loop Guitar.caf	90	D	mix	mix
+dev	mix	Apple/07 Chillwave/Reverse Hat Beat 01.caf + Apple/07 Chillwave/Tokyo Dreams Delay Guitar.caf + Apple/07 Chillwave/Tokyo Dreams Guitar.caf	90	D#	mix	mix
+held	mix	Apple/07 Chillwave/Crunchy Funk 01.caf + Apple/07 Chillwave/Drifting Off Bass.caf + Apple/07 Chillwave/Drifting Off Guitar.caf	90	E	mix	mix
+dev	mix	Apple/07 Chillwave/Reverse Hat Beat 01.caf + Apple/07 Chillwave/Night Flight Bass.caf + Apple/07 Chillwave/Night Flight Guitar 01.caf	90	F	mix	mix
+held	mix	Apple/07 Chillwave/Crunchy Funk 02.caf + Apple/07 Chillwave/Transporter Bass.caf + Apple/07 Chillwave/Stereo Delay Harmonic Guitar.caf	90	G	mix	mix
+dev	mix	Apple/07 Chillwave/Reverse Hat Beat 01.caf + Apple/07 Chillwave/Tokyo Dreams Pad.caf + Apple/07 Chillwave/Tokyo Dreams Synth.caf	90	Gm	mix	mix
+held	mix	Apple/07 Chillwave/Crunchy Funk 02.caf + Apple/07 Chillwave/Lush Chords Bass.caf + Apple/07 Chillwave/Lush Chords Guitar.caf	90	Am	mix	mix
+held	mix	Apple/07 Chillwave/Reverse Hat Beat 02.caf + Apple/07 Chillwave/Double Note Guitar.caf + Apple/07 Chillwave/Double Note Synth.caf	90	A#	mix	mix
+held	mix	Apple/07 Chillwave/Matchbox Beat 02.caf + Apple/07 Chillwave/Echo Loop Bass.caf + Apple/07 Chillwave/Echo Loop Guitar.caf	100	Cm	mix	mix
+dev	mix	Apple/07 Chillwave/Solid Structure Beat 01.caf + Apple/07 Chillwave/Forward Progress Bass.caf + Apple/07 Chillwave/Brooklyn Nights Guitar.caf	100	Dm	mix	mix
+dev	mix	Apple/07 Chillwave/80s Back Beat 01.caf + Apple/07 Chillwave/Shinjuku Streets Bass.caf + Apple/07 Chillwave/Noisy Vox.caf	100	D#m	mix	mix
+dev	mix	Apple/07 Chillwave/Analog Clap Beat 01.caf + Apple/07 Chillwave/Chill Melody Bass 01.caf + Apple/07 Chillwave/Chill Melody Guitar Chords.caf	100	E	mix	mix
+dev	mix	Apple/07 Chillwave/Analog Clap Beat 02.caf + Apple/07 Chillwave/Chill Melody Bass 01.caf + Apple/07 Chillwave/Cosmic Bell Layers 01.caf	100	Em	mix	mix
+dev	mix	Apple/07 Chillwave/Crunchy Beat 02.caf + Apple/07 Chillwave/Ethereal Lounge Bass.caf + Apple/07 Chillwave/Ethereal Lounge Guitar.caf	100	Fm	mix	mix
+dev	mix	Apple/07 Chillwave/Double Snare Beat 03.caf + Apple/07 Chillwave/Firefly Synth 01.caf + Apple/07 Chillwave/Firefly Synth 02.caf	100	G	mix	mix
+dev	mix	Apple/07 Chillwave/Matchbox Beat 01.caf + Apple/07 Chillwave/Dreamers Bass.caf + Apple/07 Chillwave/Dreamers Guitar.caf	100	Gm	mix	mix
+held	mix	Apple/07 Chillwave/Pastel Colors Beat 01.caf + Apple/07 Chillwave/End Credits Bass.caf + Apple/07 Chillwave/Time Delay Guitar.caf	100	G#	mix	mix
+dev	mix	Apple/07 Chillwave/Pastel Colors Beat 02.caf + Apple/07 Chillwave/End Credits Bass.caf + Apple/07 Chillwave/Before Dawn Vox.caf	100	G#m	mix	mix
+held	mix	Apple/07 Chillwave/Solid Structure Beat 02.caf + Apple/07 Chillwave/Delicate Lines Bass.caf + Apple/07 Chillwave/Overdriven Guitar Lead.caf	100	A	mix	mix
+dev	mix	Apple/07 Chillwave/80s Back Beat 01.caf + Apple/07 Chillwave/Delicate Lines Bass.caf + Apple/07 Chillwave/Delicate Lines Synth.caf	100	Am	mix	mix
+dev	mix	Apple/07 Chillwave/Analog Clap Beat 01.caf + Apple/07 Chillwave/Future State Bass.caf + Apple/07 Chillwave/Dusty Mirror Layers 01.caf	100	A#m	mix	mix
+held	mix	Apple/07 Chillwave/Crunchy Beat 01.caf + Apple/07 Chillwave/Chill Chords Bass.caf + Apple/07 Chillwave/Chill Chords Acoustic Guitar.caf	100	Bm	mix	mix
+dev	mix	Apple/07 Chillwave/Next Wave Beat 03.caf + Apple/07 Chillwave/Digital Riff Bass.caf + Apple/07 Chillwave/Digital Riff Guitar.caf	110	Dm	mix	mix
+dev	mix	Apple/07 Chillwave/Minimal Disco 80s Beat 03.caf + Apple/07 Chillwave/Beach Run Bass.caf + Apple/07 Chillwave/Beach Run Synth.caf	110	Gm	mix	mix
+dev	mix	Apple/07 Chillwave/Tom Tom Disco Beat 02.caf + Apple/07 Chillwave/Contrails Bass.caf + Apple/07 Chillwave/Contrails Acoustic Guitar.caf	110	Bm	mix	mix
+held	mix	Apple/07 Chillwave/Doubledown Beat 02.caf + Apple/07 Chillwave/Landing in LA Bass 01.caf + Apple/07 Chillwave/Landing in LA Guitar.caf	120	Cm	mix	mix
+dev	mix	Apple/07 Chillwave/Minimal Backbeat 02.caf + Apple/07 Chillwave/Hyperlapse Bass.caf + Apple/07 Chillwave/Hyperlapse Guitar.caf	120	C#	mix	mix
+dev	mix	Apple/07 Chillwave/Doubledown Beat 01.caf + Apple/07 Chillwave/Summers End Bass.caf + Apple/07 Chillwave/Summers End Acoustic Guitar.caf	120	D#	mix	mix
+held	mix	Apple/07 Chillwave/Minimal Backbeat 02.caf + Apple/07 Chillwave/Simple Melody Bass.caf + Apple/07 Chillwave/Simple Melody Guitar.caf	120	F	mix	mix
+held	mix	Apple/07 Chillwave/Disco Swagger Beat 02.caf + Apple/07 Chillwave/Lifting Off Bass.caf + Apple/07 Chillwave/Lifting Off Synth.caf	120	F#m	mix	mix
+dev	mix	Apple/07 Chillwave/Doubledown Beat 02.caf + Apple/07 Chillwave/Moving Pictures Bass.caf + Apple/07 Chillwave/Moving Pictures Acoustic Guitar.caf	120	G	mix	mix
+held	mix	Apple/09 Disco Funk/Hang Tight Hi-Hat Topper.caf + Apple/09 Disco Funk/Agile Funk Synth Bass 01.caf + Apple/09 Disco Funk/Agile Funk Synth Lead 01.caf	116	Em	mix	mix
+held	mix	Apple/09 Disco Funk/Down With It Beat 02.caf + Apple/09 Disco Funk/Hang Tight Synth Bass 01.caf + Apple/09 Disco Funk/Hang Tight Synth Arp 02.caf	116	Am	mix	mix
+held	mix	Apple/09 Disco Funk/Throwback Funk Beat 03.caf + Apple/09 Disco Funk/Drop the Funk Bass 01.caf + Apple/09 Disco Funk/Dream Disco Electric Piano.caf	120	Cm	mix	mix
+held	mix	Apple/09 Disco Funk/Glitter Nights Beat.caf + Apple/09 Disco Funk/Disco Fever Bass.caf + Apple/09 Disco Funk/Bending Wah Guitar.caf	120	Dm	mix	mix
+held	mix	Apple/09 Disco Funk/Throwback Funk Beat 02.caf + Apple/09 Disco Funk/Polyester Boogie Bass 02.caf + Apple/09 Disco Funk/Bell Bottom Electric Piano.caf	120	Em	mix	mix
+held	mix	Apple/09 Disco Funk/Throwback Funk Beat 04.caf + Apple/09 Disco Funk/Crystal Ball Clav.caf + Apple/09 Disco Funk/Crystal Ball Electric Piano.caf	120	Fm	mix	mix
+dev	mix	Apple/09 Disco Funk/Glitter Nights Hi-Hat Topper.caf + Apple/09 Disco Funk/Shining Star Bass 02.caf + Apple/09 Disco Funk/Cosmic Disco Guitar.caf	120	Gm	mix	mix
+dev	mix	Apple/09 Disco Funk/Throwback Funk Beat 03.caf + Apple/09 Disco Funk/Funky Stepping Bass 01.caf + Apple/09 Disco Funk/Electric Funk Beat.caf	120	Am	mix	mix
+held	mix	Apple/09 Disco Funk/Glitter Nights Beat.caf + Apple/09 Disco Funk/Disco Delight Bass.caf + Apple/09 Disco Funk/Disco Delight Electric Piano 01.caf	120	B	mix	mix
+held	mix	Apple/Apple Loops for GarageBand/Indian Pakawaj Drum 04.caf + Apple/Apple Loops for GarageBand/Down Home Dobro 01.caf + Apple/Apple Loops for GarageBand/Down Home Dobro 02.caf	70	E	mix	mix
+held	mix	Apple/Apple Loops for GarageBand/Latin Fire Percussion 03.caf + Apple/Apple Loops for GarageBand/Classic Attitude Rock 01.caf + Apple/Apple Loops for GarageBand/Classic Attitude Rock 02.caf	80	Em	mix	mix
+dev	mix	Apple/Apple Loops for GarageBand/Tambourine 06.caf + Apple/Apple Loops for GarageBand/Fireplace All.caf + Apple/Apple Loops for GarageBand/Upbeat Electric Piano 01.caf	85	Cm	mix	mix
+dev	mix	Apple/Apple Loops for GarageBand/Latin Bembe Cowbell.caf + Apple/Apple Loops for GarageBand/Vendetta All.caf + Apple/Apple Loops for GarageBand/Vendetta Strings.caf	85	F#m	mix	mix
+dev	mix	Apple/Apple Loops for GarageBand/Cuban Timba Conga 06.caf + Apple/Apple Loops for GarageBand/70s Electric Piano 06.caf + Apple/Apple Loops for GarageBand/70s Electric Piano 08.caf	90	C	mix	mix
+dev	mix	Apple/Apple Loops for GarageBand/Cuban Timba Conga 10.caf + Apple/Apple Loops for GarageBand/Hip Hop Gentle Piano.caf + Apple/Apple Loops for GarageBand/Oath All.caf	90	Cm	mix	mix
+held	mix	Apple/Apple Loops for GarageBand/Cuban Timba Conga 10.caf + Apple/Apple Loops for GarageBand/Modern Rock Guitar 07.caf + Apple/Apple Loops for GarageBand/Modern Rock Guitar 09.caf	90	Dm	mix	mix
+dev	mix	Apple/Apple Loops for GarageBand/Cuban Timba Conga 10.caf + Apple/Apple Loops for GarageBand/Edgy Rock Bass 03.caf + Apple/Apple Loops for GarageBand/Alt Pop Acoustic 01.caf	90	E	mix	mix
+held	mix	Apple/Apple Loops for GarageBand/Cuban Timba Conga 01.caf + Apple/Apple Loops for GarageBand/Edgy Rock Bass 03.caf + Apple/Apple Loops for GarageBand/Hip Hop Mystery Guitar.caf	90	Em	mix	mix
+dev	mix	Apple/Apple Loops for GarageBand/Cuban Timba Conga 01.caf + Apple/Apple Loops for GarageBand/Alternative Acoustic 08.caf + Apple/Apple Loops for GarageBand/Alternative Acoustic 09.caf	90	F#	mix	mix
+held	mix	Apple/Apple Loops for GarageBand/Funky Shuffle Drumset 10.caf + Apple/Apple Loops for GarageBand/Remix Egyptian FX 01.caf + Apple/Apple Loops for GarageBand/Remix Egyptian FX 02.caf	98	Em	mix	mix
+held	mix	Apple/Apple Loops for GarageBand/Persian Market Tar 01.caf + Apple/Apple Loops for GarageBand/Cuban Son Horns 01.caf + Apple/Apple Loops for GarageBand/Cuban Son Sax 01.caf	100	C	mix	mix
+dev	mix	Apple/Apple Loops for GarageBand/African Rain Caxixi 01.caf + Apple/Apple Loops for GarageBand/Upright Funk Bass 01.caf + Apple/Apple Loops for GarageBand/Deep Electric Piano 01.caf	100	Cm	mix	mix
+dev	mix	Apple/Apple Loops for GarageBand/Crowd Groove Fill 04.caf + Apple/Apple Loops for GarageBand/Brazilian Cavaquinho 01.caf + Apple/Apple Loops for GarageBand/Brazilian Cavaquinho 02.caf	105	D	mix	mix
+held	mix	Apple/Apple Loops for GarageBand/African King Tsonshi 01.caf + Apple/Apple Loops for GarageBand/Indie Rock Riffing 01.caf + Apple/Apple Loops for GarageBand/Indie Rock Riffing 02.caf	110	E	mix	mix
+held	mix	Apple/Apple Loops for GarageBand/Headbop Drumset 02.caf + Apple/Apple Loops for GarageBand/African King Ensemble 01.caf + Apple/Apple Loops for GarageBand/African King Ensemble 02.caf	110	Am	mix	mix
+dev	mix	Apple/Apple Loops for GarageBand/Remix Shaker 02.caf + Apple/Apple Loops for GarageBand/Jazz Hustle Flute 01.caf + Apple/Apple Loops for GarageBand/Jazz Hustle Flute 02.caf	120	Dm	mix	mix
+dev	mix	Apple/Apple Loops for GarageBand/Tambourine 03.caf + Apple/Apple Loops for GarageBand/NuJazz Jam Guitar 04.caf + Apple/Apple Loops for GarageBand/NuJazz Jam Guitar 05.caf	120	Em	mix	mix
+held	mix	Apple/Apple Loops for GarageBand/60s Shuffle Drumset 01.caf + Apple/Apple Loops for GarageBand/House Fever Hot Guitar 01.caf + Apple/Apple Loops for GarageBand/House Fever Hot Guitar 02.caf	125	Cm	mix	mix
+held	mix	Apple/Apple Loops for GarageBand/60s Shuffle Drumset 03.caf + Apple/Apple Loops for GarageBand/House Heat Up Guitar 01.caf + Apple/Apple Loops for GarageBand/House Heat Up Guitar 02.caf	125	Fm	mix	mix
+dev	mix	Apple/Apple Loops for GarageBand/Latin Day Conga 01.caf + Apple/Apple Loops for GarageBand/Latin Day Horns 03.caf + Apple/Apple Loops for GarageBand/Latin Day Horns 04.caf	150	F	mix	mix

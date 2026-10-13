@@ -1,12 +1,16 @@
 // stems_test: invariants of the Flayr Chop stem separator.
 //
-// Always runs: resampler quality and length, model path helpers, error paths.
+// Always runs: resampler quality and length (and range processing), model
+// path helpers, error paths, engine selection API.
 // With a model (FLAYR_CHOP_STEMS_MODEL env var, else defaultModelPath()):
 // output length and stem count at several rates, mono input, empty and
-// silent input, determinism across thread counts, cancellation. Without a
-// model those checks are skipped (reported, exit code 0).
+// silent input, determinism across thread counts, cancellation, every
+// network engine this CPU can run agreeing with the generic one, and the
+// progressive-results overload. Without a model those checks are skipped
+// (reported, exit code 0).
 
 #include "stems/Stems.h"
+#include "stems/Resampler.h"
 
 #include <algorithm>
 #include <array>
@@ -87,6 +91,25 @@ void testResampler()
         std::snprintf(buf, sizeof buf, "30 kHz tone rejected by %.1f dB going to 44.1k (> 90)", -db);
         check(db < -90.0, buf);
     }
+    // processRange() gives exactly the samples process() gives, for any
+    // sub-range (the progressive output path resamples range by range)
+    for (auto [from, to] : {std::pair<double, double>{44100.0, 48000.0}, {44100.0, 96000.0},
+                            {44100.0, 44100.0 * 1.0001}, {44100.0, 44100.0}}) {
+        const int inLen = 44100;
+        auto src = sine(440.0, from, inLen);
+        const int outLen = (int)std::llround(inLen * to / from);
+        chop::stems::detail::SincResampler rs(from, to);
+        std::vector<float> whole((size_t)outLen), parts((size_t)outLen);
+        rs.process(src.data(), inLen, whole.data(), outLen);
+        for (int a = 0; a < outLen;) {
+            const int b = std::min(outLen, a + 997 + (a % 13) * 101);
+            rs.processRange(src.data(), inLen, parts.data() + a, a, b);
+            a = b;
+        }
+        check(whole == parts, "resampler processRange matches process for " + std::to_string((int)from) + " -> " +
+                                  std::to_string(to));
+    }
+
     // passband: 18 kHz at 48 kHz keeps its level at 44.1 kHz
     {
         auto t = sine(18000.0, 48000.0, 48000);
@@ -122,6 +145,37 @@ void testHelpers(const std::filesystem::path& tmp)
     check(!chop::stems::separate(nullptr, a.data(), 10, 44100.0, junk.string(), out, nullptr, 1, &err),
           "separate() rejects null input");
     std::filesystem::remove(junk);
+}
+
+void testEngineApi()
+{
+    const auto engines = chop::stems::availableEngines();
+    std::string list;
+    for (const auto& e : engines)
+        list += (list.empty() ? "" : ", ") + e;
+    check(!engines.empty() && engines.back() == "generic", "available engines: " + list);
+    check(engines.front() == chop::stems::activeEngine(),
+          std::string("automatic engine is the fastest available: ") + chop::stems::activeEngine());
+    check(!chop::stems::forceEngine("no-such-engine"), "forceEngine rejects unknown names");
+    for (const auto& e : engines) {
+        const bool ok = chop::stems::forceEngine(e);
+        check(ok && e == chop::stems::activeEngine(), "forceEngine(\"" + e + "\") takes effect");
+    }
+    check(chop::stems::forceEngine("") && engines.front() == chop::stems::activeEngine(),
+          "forceEngine(\"\") restores automatic selection");
+}
+
+double snrDb(const chop::stems::Separated& ref, const chop::stems::Separated& test)
+{
+    double e = 0, r = 0;
+    for (size_t s = 0; s < ref.audio.size() && s < test.audio.size(); ++s)
+        for (int c = 0; c < 2; ++c)
+            for (size_t i = 0; i < ref.audio[s][(size_t)c].size() && i < test.audio[s][(size_t)c].size(); ++i) {
+                const double d = (double)ref.audio[s][(size_t)c][i] - test.audio[s][(size_t)c][i];
+                e += d * d;
+                r += (double)ref.audio[s][(size_t)c][i] * ref.audio[s][(size_t)c][i];
+            }
+    return 10.0 * std::log10((r + 1e-30) / (e + 1e-30));
 }
 
 void testWithModel(const std::string& model)
@@ -271,6 +325,78 @@ void testWithModel(const std::string& model)
                       cancelAt, calls);
         check(!ok && err == "cancelled" && out.audio.empty() && monotonic && calls > 2 && total - cancelAt < 2.0, buf);
     }
+
+    // every engine this CPU can run (e.g. "avx2" on x86-64) matches the
+    // portable one on a short input
+    {
+        const int n = 44100 * 9;
+        auto mix = makeMix(44100.0, n);
+        const auto engines = chop::stems::availableEngines();
+        chop::stems::Separated ref;
+        std::string err;
+        chop::stems::forceEngine("generic");
+        const bool okRef = chop::stems::separate(mix[0].data(), mix[1].data(), n, 44100.0, model, ref, nullptr, 2, &err);
+        check(okRef, "generic engine separates");
+        for (const auto& e : engines) {
+            if (e == "generic")
+                continue;
+            chop::stems::forceEngine(e);
+            chop::stems::Separated out;
+            const bool ok = chop::stems::separate(mix[0].data(), mix[1].data(), n, 44100.0, model, out, nullptr, 2, &err);
+            const double snr = ok && okRef ? snrDb(ref, out) : -1.0;
+            char buf[160];
+            std::snprintf(buf, sizeof buf, "engine \"%s\" matches \"generic\": %.1f dB SNR (> 60)", e.c_str(), snr);
+            check(ok && snr > 60.0, buf);
+        }
+        chop::stems::forceEngine("");
+        if (engines.size() == 1)
+            std::printf("note  only the generic engine runs on this CPU\n");
+    }
+
+    // progressive results: ranges in order, gap-free, final when reported,
+    // and the same output as the plain overload
+    {
+        const int n = 48000 * 20 + 11; // four segments, with resampling
+        auto mix = makeMix(48000.0, n);
+        chop::stems::Separated plain, prog;
+        std::string err;
+        const bool okPlain = chop::stems::separate(mix[0].data(), mix[1].data(), n, 48000.0, model, plain, nullptr, 3, &err);
+        int expected = 0, calls = 0;
+        bool ordered = true, sized = true;
+        std::vector<std::vector<float>> snapshot((size_t)8);
+        const bool okProg = chop::stems::separate(
+            mix[0].data(), mix[1].data(), n, 48000.0, model, prog, nullptr, 3, &err, [&](int start, int end) {
+                ordered = ordered && start == expected && end > start && end <= n;
+                expected = end;
+                ++calls;
+                sized = sized && prog.audio.size() == prog.names.size();
+                for (size_t s = 0; sized && s < prog.audio.size() && s < 4; ++s)
+                    for (int c = 0; c < 2; ++c) {
+                        auto& ch = prog.audio[s][(size_t)c];
+                        sized = sized && (int)ch.size() == n;
+                        if (sized)
+                            snapshot[s * 2 + (size_t)c].insert(snapshot[s * 2 + (size_t)c].end(), ch.begin() + start,
+                                                               ch.begin() + end);
+                    }
+            });
+        bool unchanged = okProg && sized;
+        for (size_t s = 0; unchanged && s < prog.audio.size() && s < 4; ++s)
+            for (int c = 0; c < 2; ++c)
+                unchanged = unchanged && snapshot[s * 2 + (size_t)c] == prog.audio[s][(size_t)c];
+        char buf[200];
+        std::snprintf(buf, sizeof buf, "progressive: %d ranges in order covering all %d samples, final when reported", calls,
+                      n);
+        check(okProg && ordered && expected == n && calls >= 2 && unchanged, buf);
+        const double snr = okPlain && okProg ? snrDb(plain, prog) : -1.0;
+        std::snprintf(buf, sizeof buf, "progressive output equals the plain overload (%.1f dB SNR > 120)", snr);
+        check(snr > 120.0, buf);
+
+        int silentCalls = 0;
+        std::vector<float> z(48000, 0.0f);
+        const bool okSilent = chop::stems::separate(z.data(), z.data(), (int)z.size(), 48000.0, model, prog, nullptr, 1,
+                                                    &err, [&](int a, int b) { silentCalls += (a == 0 && b == 48000); });
+        check(okSilent && silentCalls == 1, "progressive: silent input reported as one final range");
+    }
 }
 
 } // namespace
@@ -282,6 +408,7 @@ int main()
 
     testResampler();
     testHelpers(tmp);
+    testEngineApi();
 
     std::string model = chop::stems::defaultModelPath();
     if (const char* env = std::getenv("FLAYR_CHOP_STEMS_MODEL"); env && *env)

@@ -146,6 +146,9 @@ private:
     void choosFile();
     void showExportMenu();
     void setTargetKey (int key);
+    void showBpmMenu();
+    void showKeyMenu();
+    void tap();
     void layoutStems (juce::Rectangle<int>);
 
     FlayrChopProcessor& proc;
@@ -161,7 +164,8 @@ private:
     // HQ Stretch
     juce::Label keyFrom, keyArrow, bpmFrom, bpmArrow, bpmTo, renderLabel;
     juce::ComboBox keyTo, tempoMode;
-    juce::TextButton keyDown { "-" }, keyUp { "+" }, halfBtn { "/2" }, doubleBtn { "x2" };
+    juce::TextButton keyDown { "-" }, keyUp { "+" }, halfBtn { "/2" }, doubleBtn { "x2" }, tapBtn { "TAP" };
+    std::vector<double> taps;
     juce::TextButton pitchTimeBtn { "HQ STRETCH" }, formantBtn { "FORMANT" };
     juce::Slider manualTempo { juce::Slider::IncDecButtons, juce::Slider::TextBoxLeft };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> tempoModeAtt;

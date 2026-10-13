@@ -10,6 +10,19 @@
 #include <string>
 #include <vector>
 
+// Flayr Chop: model paths are UTF-8. On Windows fopen() would interpret them
+// in the ANSI code page (a user folder like "José" would fail to open), so
+// the path is converted to UTF-16 and opened with _wfopen.
+static FILE *open_model_file(const std::string &utf8_path)
+{
+#if defined(_WIN32)
+    const std::filesystem::path p = std::filesystem::u8path(utf8_path);
+    return _wfopen(p.c_str(), L"rb");
+#else
+    return std::fopen(utf8_path.c_str(), "rb");
+#endif
+}
+
 // Flayr Chop: the loader runs inside a plug-in, so its logging is discarded.
 namespace
 {
@@ -62,7 +75,7 @@ bool demucscpp::load_demucs_model(const std::string &model_file,
 
     null_log() << "Loading model_file... " << std::endl;
 
-    FILE *f = fopen(model_file.c_str(), "rb");
+    FILE *f = open_model_file(model_file);
     if (!f)
     {
         my_fprintf(stderr, "%s: failed to open %s\n", __func__,
@@ -1068,6 +1081,7 @@ bool demucscpp::load_demucs_model(const std::string &model_file,
         {
             my_fprintf(stderr, "%s: failed to load %s\n", __func__,
                        name.c_str());
+            fclose(f); // Flayr Chop: do not leak the handle
             return false;
         }
         total_size += loaded_size;
@@ -1314,7 +1328,7 @@ bool demucscpp_v3::load_demucs_v3_model(
 
     null_log() << "Loading model_file... " << std::endl;
 
-    FILE *f = fopen(model_file.c_str(), "rb");
+    FILE *f = open_model_file(model_file);
     if (!f)
     {
         my_fprintf(stderr, "%s: failed to open %s\n", __func__,
@@ -2144,6 +2158,7 @@ bool demucscpp_v3::load_demucs_v3_model(
         {
             my_fprintf(stderr, "%s: failed to load %s\n", __func__,
                        name.c_str());
+            fclose(f); // Flayr Chop: do not leak the handle
             return false;
         }
         total_size += loaded_size;

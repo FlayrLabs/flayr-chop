@@ -74,10 +74,15 @@ public:
     int padAtTime (double seconds) const;   // which pad's slice contains this time (-1 none)
 
     double getSampleBpm() const { return sampleBpm; }
-    void setSampleBpm (double);
+    void setSampleBpm (double, bool fromUser = true);
+    float getBpmConfidence() const { return sample ? sample->analysis.bpmConfidence : 0.0f; }
+    float getKeyConfidence() const { return sample ? sample->analysis.keyConfidence : 0.0f; }
+    bool isBpmFromUser() const { return bpmFromUser; }
+    bool isKeyFromUser() const { return keyFromUser; }
+    bool isRefinedFromStems() const { return refinedFromStems; }
     int getSampleKey() const { return sampleKey; }
     bool isSampleMinor() const { return sampleMinor; }
-    void setSampleKey (int key, bool minor);
+    void setSampleKey (int key, bool minor, bool fromUser = true);
     int getTargetKey() const; // sample key + key shift
     double getTargetBpm() const;
     double getSpeed() const;
@@ -109,6 +114,7 @@ private:
     chop::Globals readGlobals() const;
     void runJob (std::function<void()> job);
     void applyLoaded (std::shared_ptr<chop::LoadedSample>, bool keepPads);
+    void applyRefined (const std::shared_ptr<chop::LoadedSample>&, const chop::analysis::Result&);
     void handleMidi (const juce::MidiMessage&, int sampleOffset, double ppqAtBlock, double bpm, bool playing, int blockSize);
     void fireNote (int note, float velocity);
     double quantizeGridBeats() const;
@@ -125,6 +131,7 @@ private:
     juce::StringArray stemNames;
     std::array<chop::Pad, chop::kNumPads> pads {};
     double sampleBpm = 120.0, sampleFirstBeat = 0.0;
+    bool bpmFromUser = false, keyFromUser = false, refinedFromStems = false;
     int sampleKey = 0;
     bool sampleMinor = false;
     juce::File missingFile;

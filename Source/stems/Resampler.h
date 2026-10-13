@@ -18,6 +18,16 @@ public:
     // out[n] = x(n * inRate / outRate), samples outside [0, inLength) are 0.
     void process(const float* in, int inLength, float* out, int outLength) const;
 
+    // The same for output samples [outStart, outEnd) only, written to
+    // out[0 .. outEnd - outStart); process() is this over the whole range,
+    // so the samples are the same. Only input samples within inputReach()
+    // of the requested outputs are read.
+    void processRange(const float* in, int inLength, float* out, int outStart, int outEnd) const;
+
+    // Output sample n reads input samples k with
+    // |k - n * inRate / outRate| <= inputReach().
+    double inputReach() const;
+
 private:
     double step_ = 1.0;      // input samples per output sample
     double cutoff_ = 0.5;    // cycles per input sample

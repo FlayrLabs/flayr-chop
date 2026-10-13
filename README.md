@@ -11,7 +11,10 @@ stems you want.
 
 ## What it does
 
-- **Auto-chop.** Tempo, beat grid, key and transients are detected the moment a file loads.
+- **Auto-chop.** Tempo, beat grid, key and transients are detected the moment a file loads
+  (after separating stems, tempo and key are detected again from the drums and bass, which is
+  more accurate). Uncertain detections are marked with a **?**; click the BPM or key for the
+  ranked alternatives, or use **TAP** to tap the tempo in.
   Cues land on the strongest musical hits, or every beat, every 2 beats, every bar, or evenly.
   Drag any cue flag to move it (it snaps to the nearest transient), double-click to place one.
 - **64 pads in 4 banks.** Each pad has its own gain, pan, pitch, attack, release, Trigger / Gate /
@@ -66,8 +69,8 @@ project doesn't separate again.
 
 1. Drag a track onto the plug-in (or press **LOAD**). WAV, AIFF, FLAC, MP3 and M4A all work.
 2. Play pads from your MIDI controller, the piano roll, or by clicking them.
-3. Set the **KEY** and **TEMPO** you want. Fix a wrong detection by double-clicking the BPM
-   (or **/2**, **x2**), and right-clicking the key.
+3. Set the **KEY** and **TEMPO** you want. If a detection is off (marked **?** when unsure),
+   click the BPM or key for alternatives, use **/2**, **x2** or **TAP**, or type the tempo in.
 4. Click a pad and shape it in **PAD SETTINGS**. Right-click the waveform for more cue options.
 
 Projects remember the file path, cues, pad settings and detected tempo and key. If you move the

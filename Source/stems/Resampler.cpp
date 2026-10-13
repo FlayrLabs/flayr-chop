@@ -92,43 +92,63 @@ float SincResampler::kernel(double x) const
     return table_[i] + f * (table_[i + 1] - table_[i]);
 }
 
+double SincResampler::inputReach() const
+{
+    if (std::abs(step_ - 1.0) < 1e-12)
+        return 0.0;
+    if (phases_ > 0)
+        return (double)half_ + 1.0;
+    return halfWidth_ + 1.0;
+}
+
 void SincResampler::process(const float* in, int inLength, float* out, int outLength) const
 {
+    processRange(in, inLength, out, 0, outLength);
+}
+
+void SincResampler::processRange(const float* in, int inLength, float* out, int outStart, int outEnd) const
+{
     if (std::abs(step_ - 1.0) < 1e-12) {
-        for (int n = 0; n < outLength; ++n)
-            out[n] = n < inLength ? in[n] : 0.0f;
+        for (int n = outStart; n < outEnd; ++n)
+            out[n - outStart] = n < inLength ? in[n] : 0.0f;
         return;
     }
     if (phases_ > 0) {
-        // zero-padded copy so every tap reads valid memory
-        std::vector<float> padded((size_t)inLength + 2 * (size_t)taps_ + 2, 0.0f);
-        std::copy(in, in + inLength, padded.begin() + taps_);
-        const float* base0 = padded.data() + taps_ - half_ + 1;
-        for (int n = 0; n < outLength; ++n) {
+        for (int n = outStart; n < outEnd; ++n) {
             const long long num = (long long)n * inRateInt_;
             const long long base = num / outRateInt_;
             const int phase = (int)((num % outRateInt_) / gcd_);
             if (base - half_ + 1 > inLength) {
-                out[n] = 0.0f;
+                out[n - outStart] = 0.0f;
                 continue;
             }
-            const float* x = base0 + base;
+            const long long first = base - half_ + 1; // input index of tap 0
             const float* h = poly_.data() + (size_t)phase * taps_;
             float acc = 0.0f;
-            for (int j = 0; j < taps_; ++j)
-                acc += x[j] * h[j];
-            out[n] = acc;
+            if (first >= 0 && first + taps_ <= inLength) {
+                const float* x = in + first;
+                for (int j = 0; j < taps_; ++j)
+                    acc += x[j] * h[j];
+            } else {
+                // taps outside the input read zeros (as a zero-padded copy would)
+                for (int j = 0; j < taps_; ++j) {
+                    const long long k = first + j;
+                    const float x = (k >= 0 && k < inLength) ? in[k] : 0.0f;
+                    acc += x * h[j];
+                }
+            }
+            out[n - outStart] = acc;
         }
         return;
     }
-    for (int n = 0; n < outLength; ++n) {
+    for (int n = outStart; n < outEnd; ++n) {
         const double t = n * step_;
         const long first = std::max(0L, (long)std::ceil(t - halfWidth_));
         const long last = std::min((long)inLength - 1, (long)std::floor(t + halfWidth_));
         double acc = 0.0;
         for (long k = first; k <= last; ++k)
             acc += double(in[k]) * kernel(t - double(k));
-        out[n] = float(acc);
+        out[n - outStart] = float(acc);
     }
 }
 

@@ -1,4 +1,15 @@
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h> // GlobalMemoryStatusEx
+#endif
+
 #include "stems/Stems.h"
+#include "stems/Engine.h"
 #include "stems/Resampler.h"
 
 #include "dsp.hpp"
@@ -20,6 +31,9 @@
 #include <stdexcept>
 #include <thread>
 
+#if !defined(_WIN32)
+#include <unistd.h> // sysconf
+#endif
 #if defined(__APPLE__)
 #include <sys/sysctl.h>
 #if defined(EIGEN_USE_BLAS) && __has_include(<vecLib/thread_api.h>)
@@ -36,6 +50,9 @@ namespace chop::stems {
 namespace {
 
 constexpr int kModelRate = demucscpp::SUPPORTED_SAMPLE_RATE; // 44100
+
+// Default worker cap on Apple silicon (see defaultThreadCount()).
+constexpr int kAppleMaxWorkers = 4;
 
 // Where the default model is downloaded from. Change this one constant to
 // point at a mirror (for example a GitHub release asset); the file must keep
@@ -189,8 +206,8 @@ std::shared_ptr<const LoadedModel> getModel(const std::string& path, std::string
         return nullptr;
     auto lm = std::make_shared<LoadedModel>();
     lm->model = std::make_unique<demucscpp::demucs_model>();
-    // demucs.cpp opens files with fopen(); on Windows that is the ANSI code
-    // page, so non-ASCII model paths may fail there (copy to an ASCII path).
+    // (the loader opens UTF-8 paths with _wfopen on Windows, so non-ASCII
+    // user folders work)
     bool ok = false;
     try {
         ok = demucscpp::load_demucs_model(path, lm->model.get());
@@ -219,6 +236,34 @@ bool ftSiblings(const std::string& path, std::vector<std::string>& paths)
     return true;
 }
 
+// ---------------------------------------------------------------- engines
+
+std::atomic<const detail::EngineOps*> gForcedEngine{nullptr};
+
+// The AVX2 engine when it is compiled in, this CPU can run it, and it agrees
+// with the generic build on the model's memory layout; else nullptr.
+const detail::EngineOps* usableAvx2Engine()
+{
+    static const detail::EngineOps* const engine = []() -> const detail::EngineOps* {
+        const detail::EngineOps* e = detail::avx2EngineIfCompiled();
+        if (!e || !detail::cpuSupportsAvx2Fma())
+            return nullptr;
+        if (e->layoutSignature() != detail::genericEngine().layoutSignature())
+            return nullptr;
+        return e;
+    }();
+    return engine;
+}
+
+const detail::EngineOps& selectedEngine()
+{
+    if (const detail::EngineOps* forced = gForcedEngine.load())
+        return *forced;
+    if (const detail::EngineOps* avx2 = usableAvx2Engine())
+        return *avx2;
+    return detail::genericEngine();
+}
+
 // ---------------------------------------------------------------- inference
 
 // Demucs "apply_model" with shifts=1 (fixed zero offset, deterministic) and
@@ -226,11 +271,23 @@ bool ftSiblings(const std::string& path, std::vector<std::string>& paths)
 // run in parallel, one set of buffers per worker. Each output sample is
 // covered by at most two segments, so the overlap-add is order independent;
 // results match across thread counts to within GEMM rounding (~1e-7).
+//
+// The overlap-add lives in blocks of kBlock samples that exist only while a
+// segment still writes to them: as soon as every segment touching a range
+// has finished, the range is handed to the sink (on the calling thread, in
+// time order) and its blocks are freed. So the full-length model-rate result
+// is never held in memory, and the caller can finish (denormalize, resample)
+// and publish the early part of the song while the rest is still running.
 class SegmentRunner {
 public:
-    SegmentRunner(const demucscpp::demucs_model& model, const Eigen::MatrixXf& audio, int threads,
-                  const std::function<bool(float)>& progress, float progLo, float progHi)
-        : model_(model), audio_(audio), threads_(std::max(1, threads)), progress_(progress),
+    // Called on the calling thread with consecutive ranges [m0, m1) of model
+    // samples (shifted-mix coordinates) that are final; value() is valid for
+    // them during the call.
+    using Sink = std::function<void(int m0, int m1)>;
+
+    SegmentRunner(const detail::EngineOps& engine, const demucscpp::demucs_model& model, const Eigen::MatrixXf& audio,
+                  int threads, const std::function<bool(float)>& progress, float progLo, float progHi)
+        : engine_(engine), model_(&model), audio_(audio), threads_(std::max(1, threads)), progress_(progress),
           progLo_(progLo), progHi_(progHi)
     {
         nbSources_ = model.is_4sources ? 4 : 6;
@@ -245,47 +302,85 @@ public:
         weight_ = weight_.array().pow(demucscpp::TRANSITION_POWER);
         for (int off = 0; off < length_; off += stride_)
             offsets_.push_back(off);
+        blocks_.resize((size_t)((length_ + kBlock - 1) / kBlock));
+    }
+
+    int nbSources() const { return nbSources_; }
+
+    // Overlap-added, weight-normalized output of source s, channel c at model
+    // sample m. Only valid inside the sink for its range.
+    float value(int s, int c, int m) const
+    {
+        const Block& b = *blocks_[(size_t)(m / kBlock)];
+        const int k = m % kBlock;
+        return b.acc[(size_t)s + (size_t)nbSources_ * (c + (size_t)2 * k)] / b.weight[(size_t)k];
     }
 
     // returns false on cancel or error (error string set)
-    bool run(Eigen::Tensor3dXf& out, std::string* error)
+    bool run(const Sink& sink, std::string* error)
     {
-        out = Eigen::Tensor3dXf(nbSources_, 2, length_);
-        out.setZero();
-        sumWeight_ = Eigen::VectorXf::Zero(length_);
         const int nChunks = (int)offsets_.size();
         partial_.reset(new std::atomic<float>[(size_t)threads_]);
         for (int i = 0; i < threads_; ++i)
             partial_[i].store(0.0f);
+        done_.assign((size_t)nChunks, 0);
 
         const int nWorkers = std::min(threads_, nChunks);
         std::vector<std::thread> workers;
         workers.reserve((size_t)nWorkers);
         for (int w = 0; w < nWorkers; ++w)
-            workers.emplace_back([this, w, &out] { worker(w, out); });
+            workers.emplace_back([this, w] { worker(w); });
 
-        // Coordinator: the calling thread reports progress and polls cancel.
+        // Coordinator: the calling thread reports progress, polls cancel and
+        // hands finished ranges to the sink.
         bool cancelledByUser = false;
-        {
-            std::unique_lock<std::mutex> lock(stateMutex_);
-            while (finishedWorkers_ < nWorkers) {
-                stateCv_.wait_for(lock, std::chrono::milliseconds(50));
-                if (progress_ && !cancel_.load()) {
-                    float done = (float)completed_;
-                    for (int i = 0; i < threads_; ++i)
-                        done += partial_[i].load(std::memory_order_relaxed);
-                    const float frac = std::clamp(done / (float)nChunks, 0.0f, 1.0f);
-                    reported_ = std::max(reported_, progLo_ + (progHi_ - progLo_) * frac);
-                    const float value = reported_;
-                    lock.unlock();
-                    const bool keepGoing = progress_(value);
-                    lock.lock();
-                    if (!keepGoing && !cancel_.load()) {
-                        cancelledByUser = true;
-                        cancel_.store(true);
-                    }
+        std::string sinkError;
+        int delivered = 0;
+        for (;;) {
+            int finalEnd = 0;
+            bool allFinished = false;
+            float value = 0.0f;
+            {
+                std::unique_lock<std::mutex> lock(stateMutex_);
+                if (finishedWorkers_ < nWorkers)
+                    stateCv_.wait_for(lock, std::chrono::milliseconds(50));
+                allFinished = finishedWorkers_ >= nWorkers;
+                while (firstUndone_ < nChunks && done_[(size_t)firstUndone_])
+                    ++firstUndone_;
+                finalEnd = firstUndone_ < nChunks ? offsets_[(size_t)firstUndone_] : length_;
+                float done = (float)completed_;
+                for (int i = 0; i < threads_; ++i)
+                    done += partial_[i].load(std::memory_order_relaxed);
+                const float frac = std::clamp(done / (float)nChunks, 0.0f, 1.0f);
+                reported_ = std::max(reported_, progLo_ + (progHi_ - progLo_) * frac);
+                value = reported_;
+            }
+            if (cancel_.load())
+                finalEnd = delivered; // stop publishing once anything failed
+            if (finalEnd > delivered && sinkError.empty()) {
+                try {
+                    if (sink)
+                        sink(delivered, finalEnd);
+                } catch (const std::bad_alloc&) {
+                    sinkError = "out of memory during stem separation";
+                } catch (const std::exception& e) {
+                    sinkError = std::string("stem separation failed: ") + e.what();
+                }
+                if (!sinkError.empty()) {
+                    cancel_.store(true);
+                } else {
+                    delivered = finalEnd;
+                    releaseBlocksBelow(delivered);
                 }
             }
+            if (progress_ && !cancel_.load() && !allFinished) {
+                if (!progress_(value) && !cancel_.load()) {
+                    cancelledByUser = true;
+                    cancel_.store(true);
+                }
+            }
+            if (allFinished)
+                break;
         }
         for (auto& t : workers)
             t.join();
@@ -298,24 +393,54 @@ public:
             setError(error, workerError_);
             return false;
         }
-        for (int s = 0; s < nbSources_; ++s)
-            for (int c = 0; c < 2; ++c)
-                for (int k = 0; k < length_; ++k)
-                    out(s, c, k) /= sumWeight_(k);
+        if (!sinkError.empty()) {
+            setError(error, sinkError);
+            return false;
+        }
+        if (delivered != length_) {
+            setError(error, "stem separation failed");
+            return false;
+        }
         return true;
     }
 
-    void cancel() { cancel_.store(true); }
-
 private:
-    void worker(int index, Eigen::Tensor3dXf& out)
+    static constexpr int kBlock = 1 << 16; // 1.5 s at 44.1 kHz
+
+    struct Block {
+        std::vector<float> acc;    // nbSources x 2 x kBlock
+        std::vector<float> weight; // kBlock
+    };
+
+    // caller holds accumMutex_
+    Block& block(int index)
+    {
+        auto& b = blocks_[(size_t)index];
+        if (!b) {
+            b = std::make_unique<Block>();
+            b->acc.assign((size_t)nbSources_ * 2 * kBlock, 0.0f);
+            b->weight.assign((size_t)kBlock, 0.0f);
+        }
+        return *b;
+    }
+
+    void releaseBlocksBelow(int m)
+    {
+        std::lock_guard<std::mutex> lock(accumMutex_);
+        const int full = m >= length_ ? (int)blocks_.size() : m / kBlock;
+        for (int i = 0; i < full; ++i)
+            blocks_[(size_t)i].reset();
+    }
+
+    void worker(int index)
     {
         enableFlushToZero();
         configureBlasForWorker();
+        void* w = nullptr;
         try {
-            demucscpp::demucs_segment_buffers buffers(2, segment_, nbSources_);
-            demucscpp::stft_buffers stftBuf(buffers.padded_segment_samples);
-            demucscpp::ProgressCallback cb = [this, index](float p, const std::string&) {
+            w = engine_.createWorker(segment_, nbSources_);
+            float* mix = engine_.workerMix(w);
+            const std::function<void(float)> cb = [this, index](float p) {
                 if (cancel_.load(std::memory_order_relaxed))
                     throw Cancelled{};
                 partial_[index].store(std::clamp(p, 0.0f, 1.0f), std::memory_order_relaxed);
@@ -327,27 +452,42 @@ private:
                 const int offset = offsets_[(size_t)i];
                 const int chunkLen = std::min(segment_, length_ - offset);
 
-                // symmetric zero padding into buffers.mix
+                // symmetric zero padding into the worker's mix buffer
                 const int total = segment_ - chunkLen;
                 const int left = total / 2;
-                buffers.mix.setZero();
-                buffers.mix.block(0, left, 2, chunkLen) = audio_.block(0, offset, 2, chunkLen);
+                std::fill(mix, mix + (size_t)2 * segment_, 0.0f);
+                for (int k = 0; k < chunkLen; ++k) {
+                    mix[(size_t)2 * (left + k)] = audio_(0, offset + k);
+                    mix[(size_t)2 * (left + k) + 1] = audio_(1, offset + k);
+                }
 
                 partial_[index].store(0.0f, std::memory_order_relaxed);
-                demucscpp::model_inference(model_, buffers, stftBuf, cb, 0.0f, 1.0f);
+                engine_.run(w, model_, cb);
+                const float* targets = engine_.workerTargets(w);
 
                 {
                     std::lock_guard<std::mutex> lock(accumMutex_);
-                    for (int s = 0; s < nbSources_; ++s)
-                        for (int c = 0; c < 2; ++c)
-                            for (int k = 0; k < chunkLen; ++k)
-                                out(s, c, offset + k) += weight_(k) * buffers.targets_out(s, c, k + left);
-                    for (int k = 0; k < chunkLen; ++k)
-                        sumWeight_(offset + k) += weight_(k);
+                    const size_t per = (size_t)nbSources_ * 2;
+                    for (int k = 0; k < chunkLen;) {
+                        const int m = offset + k;
+                        Block& b = block(m / kBlock);
+                        const int k0 = m % kBlock;
+                        const int n = std::min(chunkLen - k, kBlock - k0);
+                        for (int j = 0; j < n; ++j) {
+                            const float wk = weight_(k + j);
+                            const float* t = targets + per * (size_t)(k + j + left);
+                            float* a = b.acc.data() + per * (size_t)(k0 + j);
+                            for (size_t e = 0; e < per; ++e)
+                                a[e] += wk * t[e];
+                            b.weight[(size_t)(k0 + j)] += wk;
+                        }
+                        k += n;
+                    }
                 }
                 {
                     std::lock_guard<std::mutex> lock(stateMutex_);
                     partial_[index].store(0.0f, std::memory_order_relaxed);
+                    done_[(size_t)i] = 1;
                     ++completed_;
                 }
                 stateCv_.notify_all();
@@ -360,6 +500,8 @@ private:
         } catch (...) {
             fail("stem separation failed");
         }
+        if (w)
+            engine_.destroyWorker(w);
         {
             std::lock_guard<std::mutex> lock(stateMutex_);
             ++finishedWorkers_;
@@ -375,32 +517,27 @@ private:
         cancel_.store(true);
     }
 
-    const demucscpp::demucs_model& model_;
+    const detail::EngineOps& engine_;
+    const demucscpp::demucs_model* model_;
     const Eigen::MatrixXf& audio_;
     int threads_;
     const std::function<bool(float)>& progress_;
     float progLo_, progHi_;
     int nbSources_ = 4, segment_ = 0, stride_ = 0, length_ = 0;
-    Eigen::VectorXf weight_, sumWeight_;
+    Eigen::VectorXf weight_;
     std::vector<int> offsets_;
+    std::vector<std::unique_ptr<Block>> blocks_; // slots fixed; guarded by accumMutex_
     std::atomic<int> next_{0};
     std::atomic<bool> cancel_{false};
     std::mutex accumMutex_, stateMutex_;
     std::condition_variable stateCv_;
+    std::vector<char> done_; // per segment, guarded by stateMutex_
+    int firstUndone_ = 0;
     int completed_ = 0, finishedWorkers_ = 0;
     std::unique_ptr<std::atomic<float>[]> partial_;
     float reported_ = 0.0f;
     std::string workerError_;
 };
-
-// Runs one model over the normalized, shifted mix. Returns [src][ch][n].
-bool runModel(const demucscpp::demucs_model& model, const Eigen::MatrixXf& mix, int threads,
-              const std::function<bool(float)>& progress, float lo, float hi, Eigen::Tensor3dXf& out,
-              std::string* error)
-{
-    SegmentRunner runner(model, mix, threads, progress, lo, hi);
-    return runner.run(out, error);
-}
 
 // Runs fn(i) for i in [0, n) on up to `threads` threads.
 template <typename Fn>
@@ -470,30 +607,72 @@ bool modelAvailable(const std::string& path)
 
 int defaultThreadCount()
 {
-    // Each worker holds about 0.5-0.8 GB at peak; keep all workers within a
-    // quarter of physical RAM.
+    // Each worker holds about 0.3-0.5 GB at peak; keep all workers within a
+    // quarter of physical RAM (macOS, Windows and Linux alike).
     unsigned long long ram = 0;
     int cores = 0;
 #if defined(__APPLE__)
     size_t len = sizeof(ram);
-    sysctlbyname("hw.memsize", &ram, &len, nullptr, 0);
-    // On Apple silicon the GEMMs run on the per-cluster matrix units, so
-    // throughput stops improving after about 3 workers while memory keeps
-    // growing (measured on an M3 Pro).
+    if (sysctlbyname("hw.memsize", &ram, &len, nullptr, 0) != 0)
+        ram = 0;
+    // On Apple silicon the GEMMs run on the P cluster's shared matrix unit,
+    // so past a few workers extra threads mostly wait for it while memory
+    // keeps growing (measured on an M3 Pro).
     int perf = 0;
     len = sizeof(perf);
     if (sysctlbyname("hw.perflevel0.physicalcpu", &perf, &len, nullptr, 0) == 0 && perf > 0)
-        cores = std::min(perf, 3);
+        cores = std::min(perf, kAppleMaxWorkers);
+#elif defined(_WIN32)
+    MEMORYSTATUSEX status;
+    status.dwLength = sizeof(status);
+    if (GlobalMemoryStatusEx(&status))
+        ram = (unsigned long long)status.ullTotalPhys;
+#else
+    const long pages = sysconf(_SC_PHYS_PAGES);
+    const long pageSize = sysconf(_SC_PAGE_SIZE);
+    if (pages > 0 && pageSize > 0)
+        ram = (unsigned long long)pages * (unsigned long long)pageSize;
 #endif
     if (cores <= 0) {
         const unsigned hc = std::thread::hardware_concurrency();
         cores = hc == 0 ? 4 : (int)(hc > 4 ? hc / 2 : hc); // assume SMT
     }
     if (ram > 0) {
-        const int byRam = (int)((ram / 4) / (800ULL << 20));
+        const int byRam = (int)((ram / 4) / (512ULL << 20));
         cores = std::min(cores, std::max(1, byRam));
     }
     return std::max(1, cores);
+}
+
+const char* activeEngine()
+{
+    return selectedEngine().name;
+}
+
+std::vector<std::string> availableEngines()
+{
+    std::vector<std::string> names;
+    if (const detail::EngineOps* avx2 = usableAvx2Engine())
+        names.emplace_back(avx2->name);
+    names.emplace_back(detail::genericEngine().name);
+    return names;
+}
+
+bool forceEngine(const std::string& name)
+{
+    if (name.empty()) {
+        gForcedEngine.store(nullptr);
+        return true;
+    }
+    if (name == detail::genericEngine().name) {
+        gForcedEngine.store(&detail::genericEngine());
+        return true;
+    }
+    if (const detail::EngineOps* avx2 = usableAvx2Engine(); avx2 && name == avx2->name) {
+        gForcedEngine.store(avx2);
+        return true;
+    }
+    return false;
 }
 
 void releaseCachedModels()
@@ -512,9 +691,11 @@ std::vector<float> resample(const float* in, int inLength, double inRate, double
     return out;
 }
 
-bool separate(const float* left, const float* right, int numSamples, double sampleRate,
-              const std::string& modelPath, Separated& out,
-              const std::function<bool(float)>& progress, int numThreads, std::string* error)
+namespace {
+
+bool separateImpl(const float* left, const float* right, int numSamples, double sampleRate,
+                  const std::string& modelPath, Separated& out, const std::function<bool(float)>& progress,
+                  int numThreads, std::string* error, const std::function<void(int, int)>& onSegmentReady)
 {
     out = Separated{};
     if (error)
@@ -566,6 +747,8 @@ bool separate(const float* left, const float* right, int numSamples, double samp
     if (modelLen <= 0) {
         out.audio.assign((size_t)nbSources, {std::vector<float>((size_t)numSamples, 0.0f),
                                              std::vector<float>((size_t)numSamples, 0.0f)});
+        if (onSegmentReady)
+            onSegmentReady(0, numSamples);
         return true;
     }
     std::array<std::vector<float>, 2> modelIn;
@@ -595,6 +778,8 @@ bool separate(const float* left, const float* right, int numSamples, double samp
         // digital silence (or a constant): every stem is silent
         out.audio.assign((size_t)nbSources, {std::vector<float>((size_t)numSamples, 0.0f),
                                              std::vector<float>((size_t)numSamples, 0.0f)});
+        if (onSegmentReady)
+            onSegmentReady(0, numSamples);
         report(1.0f);
         return true;
     }
@@ -610,47 +795,118 @@ bool separate(const float* left, const float* right, int numSamples, double samp
             mix(c, maxShift + i) = (float)((modelIn[(size_t)c][(size_t)i] - mean) / stdev);
     modelIn = {};
 
+    // ---- output buffers, filled in time order while the network runs:
+    // denormalize, drop the shift and (if needed) resample back to the input
+    // rate as soon as every segment touching a range has finished.
+    out.audio.assign((size_t)nbSources, {std::vector<float>((size_t)numSamples, 0.0f),
+                                         std::vector<float>((size_t)numSamples, 0.0f)});
+    std::vector<std::array<std::vector<float>, 2>> stemModel; // model-rate stems, only when resampling
+    if (needResample)
+        stemModel.assign((size_t)nbSources, {std::vector<float>((size_t)modelLen, 0.0f),
+                                             std::vector<float>((size_t)modelLen, 0.0f)});
+    std::unique_ptr<detail::SincResampler> back;
+    if (needResample)
+        back = std::make_unique<detail::SincResampler>(kModelRate, sampleRate);
+    const double reach = back ? back->inputReach() : 0.0;
+    const double step = kModelRate / sampleRate; // model samples per output sample
+    int outDone = 0;
+
+    // model samples [i0, i1) (unshifted) of source s / channel c from the runner
+    auto writeModel = [&](const SegmentRunner& runner, int m0, int m1, int onlySource) {
+        for (int s = 0; s < nbSources; ++s) {
+            if (onlySource >= 0 && s != onlySource)
+                continue;
+            const int src = onlySource >= 0 ? onlySource : s;
+            for (int c = 0; c < 2; ++c) {
+                float* dst = needResample ? stemModel[(size_t)s][(size_t)c].data() : out.audio[(size_t)s][(size_t)c].data();
+                for (int m = std::max(m0, maxShift); m < m1; ++m)
+                    dst[m - maxShift] = (float)(runner.value(src, c, m) * stdev + mean);
+            }
+        }
+    };
+    // publishes output samples whose inputs are final (model samples < modelDone)
+    auto advanceOutput = [&](int modelDone) {
+        int nEnd = 0;
+        if (!needResample)
+            nEnd = modelDone;
+        else if (modelDone >= modelLen)
+            nEnd = numSamples;
+        else
+            nEnd = (int)std::floor(((double)modelDone - 1.0 - reach) / step) + 1;
+        nEnd = std::clamp(nEnd, outDone, numSamples);
+        if (nEnd <= outDone)
+            return;
+        if (needResample)
+            for (int s = 0; s < nbSources; ++s)
+                for (int c = 0; c < 2; ++c)
+                    back->processRange(stemModel[(size_t)s][(size_t)c].data(), modelLen,
+                                       out.audio[(size_t)s][(size_t)c].data() + outDone, outDone, nEnd);
+        const int start = outDone;
+        outDone = nEnd;
+        if (onSegmentReady)
+            onSegmentReady(start, nEnd);
+    };
+
     // ---- network
-    const float netLo = 0.02f, netHi = 0.95f;
-    Eigen::Tensor3dXf result;
+    const detail::EngineOps& engine = selectedEngine();
+    const float netLo = 0.02f, netHi = 0.98f;
     if (!fineTuned) {
-        if (!runModel(*models[0]->model, mix, threads, progress, netLo, netHi, result, error)) {
+        SegmentRunner runner(engine, *models[0]->model, mix, threads, progress, netLo, netHi);
+        const bool ok = runner.run(
+            [&](int m0, int m1) {
+                writeModel(runner, m0, m1, -1);
+                advanceOutput(std::max(0, m1 - maxShift));
+            },
+            error);
+        if (!ok) {
             out = Separated{};
             return false;
         }
     } else {
-        result = Eigen::Tensor3dXf(4, 2, shiftedLen);
+        // the fine-tuned bag: model m contributes stem m; publish at the end
         const float span = (netHi - netLo) / 4.0f;
         for (int m = 0; m < 4; ++m) {
-            Eigen::Tensor3dXf r;
-            if (!runModel(*models[(size_t)m]->model, mix, threads, progress, netLo + span * m,
-                          netLo + span * (m + 1), r, error)) {
+            SegmentRunner runner(engine, *models[(size_t)m]->model, mix, threads, progress, netLo + span * m,
+                                 netLo + span * (m + 1));
+            const bool ok = runner.run([&](int m0, int m1) { writeModel(runner, m0, m1, m); }, error);
+            if (!ok) {
                 out = Separated{};
                 return false;
             }
-            for (int c = 0; c < 2; ++c)
-                for (int k = 0; k < shiftedLen; ++k)
-                    result(m, c, k) = r(m, c, k);
         }
+        advanceOutput(modelLen);
     }
     mix.resize(0, 0);
-
-    // ---- denormalize, drop the shift, resample back to the input rate
-    out.audio.resize((size_t)nbSources);
-    parallelFor(nbSources * 2, threads, [&](int job) {
-        const int s = job / 2, c = job % 2;
-        std::vector<float> stem((size_t)modelLen);
-        for (int i = 0; i < modelLen; ++i)
-            stem[(size_t)i] = (float)(result(s, c, maxShift + i) * stdev + mean);
-        out.audio[(size_t)s][(size_t)c] =
-            needResample ? resample(stem.data(), modelLen, kModelRate, sampleRate, numSamples) : std::move(stem);
-    });
+    stemModel.clear();
+    if (outDone != numSamples) {
+        out = Separated{};
+        setError(error, "stem separation failed");
+        return false;
+    }
     if (!report(1.0f)) {
         out = Separated{};
         setError(error, "cancelled");
         return false;
     }
     return true;
+}
+
+} // namespace
+
+bool separate(const float* left, const float* right, int numSamples, double sampleRate,
+              const std::string& modelPath, Separated& out,
+              const std::function<bool(float)>& progress, int numThreads, std::string* error)
+{
+    return separateImpl(left, right, numSamples, sampleRate, modelPath, out, progress, numThreads, error, nullptr);
+}
+
+bool separate(const float* left, const float* right, int numSamples, double sampleRate,
+              const std::string& modelPath, Separated& out,
+              const std::function<bool(float)>& progress, int numThreads, std::string* error,
+              const std::function<void(int startSample, int endSample)>& onSegmentReady)
+{
+    return separateImpl(left, right, numSamples, sampleRate, modelPath, out, progress, numThreads, error,
+                        onSegmentReady);
 }
 
 } // namespace chop::stems

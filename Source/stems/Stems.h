@@ -6,8 +6,12 @@
 // (Source/stems/third_party/demucs.cpp, MIT) on Eigen (MPL2). Fully local,
 // no Python, no dylibs. macOS uses the system Accelerate framework for GEMM.
 // Local changes to the vendored code (marked "Flayr Chop:"): GEMM-friendly
-// conv/norm/softmax kernels (about 4x faster per segment, output within
-// ~100 dB SNR of upstream), lower peak memory, no stdout logging, no exit().
+// conv/norm/softmax kernels, shuffle-free channel-first layouts, cache-blocked
+// attention / feed-forward / DConv, vDSP FFTs on Apple (each change kept
+// the output within 60+ dB SNR, measured 85-130 dB per stem against v1.0.0),
+// lower peak memory, no stdout logging, no exit().
+// On x86-64 the network is built twice (portable and AVX2+FMA) and the
+// engine is chosen at run time; see activeEngine().
 //
 // Model weights license: the Demucs repository (github.com/facebookresearch/
 // demucs), including its released pretrained weights (htdemucs, htdemucs_6s,
@@ -54,6 +58,23 @@ bool separate(const float* left, const float* right, int numSamples, double samp
               const std::string& modelPath, Separated& out,
               const std::function<bool(float)>& progress, int numThreads, std::string* error = nullptr);
 
+// Same, with progressive results. `out` is sized (names, and every stem at
+// numSamples, zero-filled) before the first call, and onSegmentReady(start,
+// end) reports that samples [start, end) of every stem are final: the calls
+// come in time order, cover [0, numSamples) without gaps or overlap, and
+// arrive on the calling thread (like progress), roughly every 6 s of audio as
+// the segments of the song finish, so the plug-in can use the start of the
+// song long before the end is separated. Final samples are never written
+// again; only the calling thread writes into out.audio. Another thread that
+// reads them needs its own synchronization with the callback. On failure or
+// cancel `out` is cleared as usual (data already handed out stays valid only
+// in the caller's own copies). With the fine-tuned bag (four models run one
+// after another) there is a single call at the end.
+bool separate(const float* left, const float* right, int numSamples, double sampleRate,
+              const std::string& modelPath, Separated& out,
+              const std::function<bool(float)>& progress, int numThreads, std::string* error,
+              const std::function<void(int startSample, int endSample)>& onSegmentReady);
+
 // macOS:   ~/Library/Application Support/Flayr Chop/models/ggml-model-htdemucs-4s-f16.bin
 // Windows: %APPDATA%\Flayr Chop\models\ggml-model-htdemucs-4s-f16.bin
 // Linux:   $XDG_DATA_HOME or ~/.local/share/Flayr Chop/models/ggml-model-htdemucs-4s-f16.bin
@@ -72,6 +93,20 @@ const char* defaultModelSha256();
 
 // Default worker count used when numThreads <= 0.
 int defaultThreadCount();
+
+// Network code path. x86-64 builds carry a portable engine ("generic") and
+// an AVX2 + FMA one ("avx2"); the fastest one this CPU supports is picked at
+// run time. Other targets have only "generic".
+const char* activeEngine();
+
+// Engines this machine can run, fastest first.
+std::vector<std::string> availableEngines();
+
+// For tests and benchmarks: force an engine for later separate() calls, or
+// pass "" to go back to automatic. Returns false (and changes nothing) if the
+// name is unknown or this CPU cannot run it. Do not call it while a
+// separation is running.
+bool forceEngine(const std::string& name);
 
 // Loaded models are cached (about 170 MB of RAM for htdemucs) so repeated
 // separations skip the load. Call this to free them, e.g. when the editor

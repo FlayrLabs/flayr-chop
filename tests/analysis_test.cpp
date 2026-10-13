@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -161,6 +162,37 @@ void checkChopInvariants(const A::Result& r, const Buf& b, const char* name) {
         }
     }
     CHECK(A::chop(r, b.x.data(), (int)b.x.size(), b.sr, 0, A::ChopMode::Auto).empty(), "%s count 0", name);
+}
+
+bool hasTempo(const A::Result& r, double bpm, double frac = 0.02) {
+    for (const auto& c : r.tempoCandidates) if (std::fabs(c.bpm - bpm) <= bpm * frac) return true;
+    return false;
+}
+
+void checkCandidateInvariants(const A::Result& r, const char* name) {
+    if (r.bpm > 0) {
+        CHECK(!r.tempoCandidates.empty() && r.tempoCandidates.size() <= 4, "%s tempo candidates %zu", name, r.tempoCandidates.size());
+        CHECK(!r.tempoCandidates.empty() && r.tempoCandidates[0].bpm == r.bpm && r.tempoCandidates[0].score == 1.0f,
+              "%s first tempo candidate must be the result", name);
+        bool ok = true;
+        for (size_t i = 0; i < r.tempoCandidates.size(); ++i) {
+            const auto& c = r.tempoCandidates[i];
+            ok = ok && c.score >= 0.f && c.score <= 1.f && c.bpm >= 40 && c.bpm <= 240;
+            if (i > 1) ok = ok && c.score <= r.tempoCandidates[i - 1].score;
+            for (size_t j = 0; j < i; ++j) ok = ok && std::fabs(c.bpm / r.tempoCandidates[j].bpm - 1.0) >= 0.03;
+        }
+        CHECK(ok, "%s tempo candidates out of range, unsorted or duplicated", name);
+    }
+    CHECK(r.keyCandidates.size() <= 3, "%s key candidates %zu", name, r.keyCandidates.size());
+    if (!r.keyCandidates.empty()) {
+        CHECK(r.keyCandidates[0].key == r.key && r.keyCandidates[0].minor == r.minor && r.keyCandidates[0].score == 1.0f,
+              "%s first key candidate must be the result", name);
+        bool ok = true;
+        for (size_t i = 1; i < r.keyCandidates.size(); ++i)
+            ok = ok && r.keyCandidates[i].score <= r.keyCandidates[i - 1].score && r.keyCandidates[i].score >= 0.f &&
+                 !(r.keyCandidates[i].key == r.key && r.keyCandidates[i].minor == r.minor);
+        CHECK(ok, "%s key candidates unsorted or duplicated", name);
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -315,6 +347,7 @@ void testDrumLoops() {
         const double ph = std::fmod(r.firstBeatSec - 0.2 + 100 * barLen, barLen);
         CHECK(std::min(ph, barLen - ph) < 0.012, "%s downbeat phase off by %.3f s", p.name, std::min(ph, barLen - ph));
         checkChopInvariants(r, b, p.name);
+        checkCandidateInvariants(r, p.name);
 
         // Beats mode lands on the grid; Auto mode starts at the first sound and keeps a 16th-note spacing.
         const double P = 60.0 / r.bpm;
@@ -388,6 +421,222 @@ void testKeys() {
         std::printf("  got %s (conf %.2f), %.3f BPM\n", A::keyName(r.key, r.minor), r.keyConfidence, r.bpm);
         CHECK(r.key == 9 && r.minor, "drums+Am got %s", A::keyName(r.key, r.minor));
         CHECK(octaveCorrectWithin(r.bpm, 90, 0.01), "drums+Am bpm %.3f", r.bpm);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// Candidates, tempo ambiguity, tonic evidence and the stem-aware entry point.
+
+void testTempoAmbiguity() {
+    std::printf("[ambiguity] triplet-feel loop: 120 BPM shaker in 8th-note triplets, 4 bars, trimmed\n");
+    {
+        // Twelve evenly spaced hits per bar with only a light accent on the beat. At 120 BPM these are
+        // 8th-note triplets; they are also straight 8ths at 180 (16ths at 90), so both readings must be offered.
+        Buf b(8.0, 44100);
+        Rng rng;
+        const double P = 0.5;
+        for (int i = 0; i < 4 * 4 * 3; ++i) hat(b, i * P / 3.0, rng, i % 3 == 0 ? 0.3f : 0.22f, 0.03);
+        normalise(b);
+        const A::Result r = A::analyse(b.x.data(), (int)b.x.size(), b.sr);
+        std::printf("  got %.2f (conf %.2f), candidates:", r.bpm, r.bpmConfidence);
+        for (const auto& c : r.tempoCandidates) std::printf(" %.1f:%.2f", c.bpm, c.score);
+        std::printf("\n");
+        CHECK(hasTempo(r, 120) || hasTempo(r, 60) || hasTempo(r, 240), "triplet loop: 120 family missing from candidates");
+        CHECK(hasTempo(r, 90) || hasTempo(r, 180), "triplet loop: 90/180 family missing from candidates");
+        CHECK(r.bpmConfidence < 0.6f, "triplet loop: confidence %.2f should reflect the 3:2 ambiguity", r.bpmConfidence);
+        checkCandidateInvariants(r, "triplet loop");
+    }
+    std::printf("[ambiguity] 3-3-2 house loop at 128 BPM (dotted-8th kicks), 4 bars, trimmed\n");
+    {
+        // Kick on 16th steps 0, 3, 6 and 8, 11, 14 (3-3-2 twice), clap on the backbeat, offbeat hats: the
+        // dotted-8th kicks pull towards 170.7 (4:3); the file length and the backbeat say 128.
+        const Pattern p{"332", 128.0, "x..x..x.x..x..x.", "....x.......x...", "..x...x...x...x."};
+        const Buf b = makeDrums(p, 4 * 240.0 / 128.0, 44100, nullptr);
+        const A::Result r = A::analyse(b.x.data(), (int)b.x.size(), b.sr);
+        std::printf("  got %.2f (conf %.2f), candidates:", r.bpm, r.bpmConfidence);
+        for (const auto& c : r.tempoCandidates) std::printf(" %.1f:%.2f", c.bpm, c.score);
+        std::printf("\n");
+        CHECK(octaveCorrectWithin(r.bpm, 128, 0.01), "332 loop got %.2f", r.bpm);
+        checkCandidateInvariants(r, "332 loop");
+    }
+    std::printf("[ambiguity] rhythmless material: legato melody with irregular note lengths\n");
+    {
+        Buf b(20.0, 44100);
+        Rng rng;
+        double t = 0.3;
+        const int scale[7] = {0, 2, 3, 5, 7, 8, 10};
+        while (t < 19.0) {
+            const double dur = 0.45 + 1.4 * (0.5 + 0.5 * rng.next());
+            tone(b, t, dur, 69 + scale[(int)(3.5 + 3.4 * rng.next()) % 7], 0.2f);
+            t += dur + 0.02;
+        }
+        normalise(b);
+        const A::Result r = A::analyse(b.x.data(), (int)b.x.size(), b.sr);
+        std::printf("  legato: bpm %.2f conf %.2f, %zu onsets\n", r.bpm, r.bpmConfidence, r.onsetsSec.size());
+        CHECK(r.bpmConfidence < 0.3f, "legato melody tempo confidence %.2f", r.bpmConfidence);
+    }
+}
+
+void testRelativeKeys() {
+    std::printf("[key] relative major/minor: shared-scale progressions decided by the tonic\n");
+    // Every progression uses only chords of one scale, so profile correlation alone sees a near tie with the
+    // relative key (v1.0.0 named the relative major for all four minor cases with the bass on the chord
+    // roots). The bass, the first and last chord and the chord roots carry the decision.
+    struct Case { const char* name; int key; bool minor; std::pair<int, bool> prog[4]; bool tonicPedal; };
+    const Case cases[] = {
+        {"Am i-VI-III-VII", 9, true, {{9, true}, {5, false}, {0, false}, {7, false}}, false},
+        {"Am same, A pedal", 9, true, {{9, true}, {5, false}, {0, false}, {7, false}}, true},
+        {"Em i-VI-III-VII", 4, true, {{4, true}, {0, false}, {7, false}, {2, false}}, false},
+        {"Cm i-VI-III-VII", 0, true, {{0, true}, {8, false}, {3, false}, {10, false}}, false},
+        {"F#m i-VI-III-VII", 6, true, {{6, true}, {2, false}, {9, false}, {4, false}}, false},
+        {"C  I-vi-IV-V", 0, false, {{0, false}, {9, true}, {5, false}, {7, false}}, false},
+        {"G  I-vi-IV-V", 7, false, {{7, false}, {4, true}, {0, false}, {2, false}}, false},
+    };
+    for (const Case& kc : cases) {
+        const double bar = 4 * 60.0 / 92.0;
+        Buf b(bar * 8 + 0.5, 44100);
+        for (int i = 0; i < 8; ++i) {
+            const auto& c = kc.prog[i % 4];
+            const int root = 60 + c.first;
+            tone(b, 0.1 + i * bar, bar - 0.05, root, 0.15f);
+            tone(b, 0.1 + i * bar, bar - 0.05, root + (c.second ? 3 : 4), 0.15f);
+            tone(b, 0.1 + i * bar, bar - 0.05, root + 7, 0.15f);
+            // Bass: the chord root (C2..F#2 / G1..B1), or a tonic pedal.
+            const int bassPc = kc.tonicPedal ? kc.key : c.first;
+            tone(b, 0.1 + i * bar, 0.6 * bar, 36 + bassPc - (bassPc > 6 ? 12 : 0), 0.35f);
+        }
+        normalise(b);
+        const A::Result r = A::analyse(b.x.data(), (int)b.x.size(), b.sr);
+        std::printf("  %-18s want %-4s got %-4s (conf %.2f), candidates:", kc.name, A::keyName(kc.key, kc.minor), A::keyName(r.key, r.minor),
+                    r.keyConfidence);
+        for (const auto& c : r.keyCandidates) std::printf(" %s:%.2f", A::keyName(c.key, c.minor), c.score);
+        std::printf("\n");
+        CHECK(r.key == kc.key && r.minor == kc.minor, "%s got %s", kc.name, A::keyName(r.key, r.minor));
+        checkCandidateInvariants(r, kc.name);
+    }
+}
+
+void testStems() {
+    std::printf("[stems] analyseWithStems on separately synthesized drums, bass and chords (Am, 96 BPM)\n");
+    const double bpm = 96.0, bar = 240.0 / bpm, len = 8 * bar;
+    const Pattern p{"stems", bpm, "x.....x...x.....", "....x.......x...", "x.x.x.x.x.x.x.x."};
+    Buf drums = makeDrums(p, len, 44100, nullptr);
+    Buf bass(len, 44100), harm(len, 44100);
+    const std::pair<int, bool> prog[4] = {{9, true}, {5, false}, {0, false}, {7, false}};
+    for (int i = 0; i < 8; ++i) {
+        const auto& c = prog[i % 4];
+        const int root = 60 + c.first, third = root + (c.second ? 3 : 4);
+        tone(harm, i * bar, bar - 0.05, root, 0.12f);
+        tone(harm, i * bar, bar - 0.05, third, 0.12f);
+        tone(harm, i * bar, bar - 0.05, root + 7, 0.12f);
+        tone(bass, i * bar, 0.45 * bar, 33 + (i % 2 == 0 ? 0 : c.first - 9 + (c.first < 9 ? 12 : 0)), 0.3f);
+    }
+    Buf mix(len, 44100);
+    for (size_t i = 0; i < mix.x.size(); ++i) mix.x[i] = 0.5f * drums.x[i] + bass.x[i] + harm.x[i];
+    const int n = (int)mix.x.size();
+    const A::Result rs = A::analyseWithStems(mix.x.data(), drums.x.data(), bass.x.data(), harm.x.data(), n, mix.sr);
+    std::printf("  stems: %.2f BPM (conf %.2f), %s (conf %.2f), %zu onsets\n", rs.bpm, rs.bpmConfidence, A::keyName(rs.key, rs.minor),
+                rs.keyConfidence, rs.onsetsSec.size());
+    CHECK(octaveCorrectWithin(rs.bpm, bpm, 0.01), "stems bpm %.3f", rs.bpm);
+    CHECK(rs.key == 9 && rs.minor, "stems key %s", A::keyName(rs.key, rs.minor));
+    // Onsets come from the drum stem: every drum hit, no chord or bass attacks between them.
+    std::vector<double> truth;
+    makeDrums(p, len, 44100, &truth);
+    double worst;
+    const int hit = matchOnsets(rs, truth, 0.010, worst);
+    CHECK(hit >= (int)(truth.size() * 0.97) && rs.onsetsSec.size() <= truth.size() + 2, "stems onsets %d/%zu, %zu detected", hit,
+          truth.size(), rs.onsetsSec.size());
+    checkCandidateInvariants(rs, "stems");
+
+    // Missing stems fall back to the mix: all null is exactly analyse().
+    const A::Result r0 = A::analyse(mix.x.data(), n, mix.sr);
+    const A::Result rn = A::analyseWithStems(mix.x.data(), nullptr, nullptr, nullptr, n, mix.sr);
+    CHECK(r0.bpm == rn.bpm && r0.key == rn.key && r0.minor == rn.minor && r0.onsetsSec == rn.onsetsSec &&
+              r0.bpmConfidence == rn.bpmConfidence && r0.keyConfidence == rn.keyConfidence,
+          "null stems must match analyse()");
+    // A silent drum stem (a separation of drumless material) must not wipe out the onsets.
+    std::vector<float> silent((size_t)n, 0.f);
+    const A::Result rq = A::analyseWithStems(mix.x.data(), silent.data(), bass.x.data(), harm.x.data(), n, mix.sr);
+    CHECK(rq.onsetsSec.size() == r0.onsetsSec.size() && rq.bpm == r0.bpm, "silent drum stem: %zu onsets vs %zu, bpm %.2f vs %.2f",
+          rq.onsetsSec.size(), r0.onsetsSec.size(), rq.bpm, r0.bpm);
+    CHECK(rq.key == 9 && rq.minor, "silent drum stem key %s", A::keyName(rq.key, rq.minor));
+    CHECK(A::analyseWithStems(nullptr, nullptr, nullptr, nullptr, 0, 44100).bpm == 0, "null mix");
+}
+
+void testSampleRateInvariance() {
+    std::printf("[rate] the same material at 44.1, 48, 88.2 and 96 kHz must analyse the same\n");
+    // Clicks and tones are synthesized natively at every rate. Material with noise (drums) is synthesized
+    // once at 44.1 kHz and resampled (band-limited) to the other rates, since the noise generator draws one
+    // value per sample and would otherwise produce different hits at every rate.
+    struct Sig { const char* name; bool tonal; bool native; std::function<Buf(double)> make; };
+    auto drumsAndChords = [](double sr) {
+        Buf b = makeDrums(kPatterns[0], 24.0, sr, nullptr, 0.0);
+        Buf c(24.0, sr);
+        const double bar = 4 * 60.0 / 90.0;
+        const std::pair<int, bool> prog[4] = {{9, true}, {5, false}, {0, false}, {7, false}};
+        for (int i = 0; i * bar < 23.0; ++i) {
+            chord(c, i * bar, bar - 0.05, prog[i % 4].first, prog[i % 4].second, 0.15f);
+            tone(c, i * bar, 0.6 * bar, 36 + prog[i % 4].first - (prog[i % 4].first > 6 ? 12 : 0), 0.3f);
+        }
+        normalise(c, 0.6f);
+        for (size_t i = 0; i < b.x.size(); ++i) b.x[i] = 0.6f * b.x[i] + c.x[i];
+        return b;
+    };
+    const std::vector<Sig> sigs = {
+        {"clicks 87", false, true, [](double sr) {
+             Buf b(20.0, sr);
+             for (int i = 0; 0.3 + i * 60.0 / 87.0 < 19.8; ++i) click(b, 0.3 + i * 60.0 / 87.0, i % 4 ? 1500 : 2000, i % 4 ? 0.5f : 0.9f);
+             return b;
+         }},
+        {"Cm chords (native)", true, true, [](double sr) {
+             const double bar = 2.4;
+             Buf b(bar * 8 + 0.5, sr);
+             const std::pair<int, bool> prog[4] = {{0, true}, {8, false}, {3, false}, {10, false}};
+             for (int i = 0; i < 8; ++i) {
+                 chord(b, 0.1 + i * bar, bar - 0.05, prog[i % 4].first, prog[i % 4].second, 0.15f);
+                 tone(b, 0.1 + i * bar, 0.6 * bar, 36 + prog[i % 4].first - (prog[i % 4].first > 6 ? 12 : 0), 0.35f);
+             }
+             normalise(b);
+             return b;
+         }},
+        {"boom-bap + Am", true, false, drumsAndChords},
+        {"house 124", false, false, [](double sr) { return makeDrums(kPatterns[1], 16.0, sr, nullptr, 0.2); }},
+        {"trap 140", false, false, [](double sr) { return makeDrums(kPatterns[2], 16.0, sr, nullptr, 0.2); }},
+        {"triplet shaker 120", false, false, [](double sr) {
+             Buf b(8.0, sr);
+             Rng rng;
+             for (int i = 0; i < 48; ++i) hat(b, i * 0.5 / 3.0, rng, i % 3 == 0 ? 0.3f : 0.22f, 0.03);
+             normalise(b);
+             return b;
+         }},
+    };
+    for (const Sig& sg : sigs) {
+        const Buf ref = sg.make(44100.0);
+        const A::Result r0 = A::analyse(ref.x.data(), (int)ref.x.size(), ref.sr);
+        std::printf("  %-20s 44.1k: %.2f BPM %s, %zu onsets\n", sg.name, r0.bpm, A::keyName(r0.key, r0.minor), r0.onsetsSec.size());
+        for (double sr : {48000.0, 88200.0, 96000.0}) {
+            Buf b(0.0, sr);
+            if (sg.native) b = sg.make(sr);
+            else b.x = A::detail::resample(ref.x, 44100.0, sr);
+            const A::Result r = A::analyse(b.x.data(), (int)b.x.size(), b.sr);
+            double worst = 0;
+            int unmatched = 0;
+            for (double t : r0.onsetsSec) {
+                double best = 1e9;
+                for (double o : r.onsetsSec) best = std::min(best, std::fabs(o - t));
+                if (best > 0.002) { ++unmatched; std::printf("      onset %.4f nearest off by %.2f ms\n", t, best * 1000); } else worst = std::max(worst, best);
+            }
+            std::printf("    %5.1fk: %.2f BPM %s, %zu onsets, worst onset shift %.2f ms, unmatched %d\n", sr / 1000, r.bpm,
+                        A::keyName(r.key, r.minor), r.onsetsSec.size(), worst * 1000, unmatched);
+            CHECK(r0.bpm > 0 && std::fabs(r.bpm / r0.bpm - 1.0) < 0.005, "%s @%.0f bpm %.3f vs %.3f", sg.name, sr, r.bpm, r0.bpm);
+            CHECK(std::fabs(r.firstBeatSec - r0.firstBeatSec) < 0.005, "%s @%.0f first beat %.4f vs %.4f", sg.name, sr, r.firstBeatSec,
+                  r0.firstBeatSec);
+            if (sg.tonal)
+                CHECK(r.key == r0.key && r.minor == r0.minor, "%s @%.0f key %s vs %s", sg.name, sr, A::keyName(r.key, r.minor),
+                      A::keyName(r0.key, r0.minor));
+            CHECK(unmatched == 0 && r.onsetsSec.size() == r0.onsetsSec.size(), "%s @%.0f onsets: %d of %zu moved > 2 ms, count %zu",
+                  sg.name, sr, unmatched, r0.onsetsSec.size(), r.onsetsSec.size());
+        }
     }
 }
 
@@ -512,6 +761,10 @@ int main() {
     testSwing();
     testDrumLoops();
     testKeys();
+    testTempoAmbiguity();
+    testRelativeKeys();
+    testStems();
+    testSampleRateInvariance();
     testNames();
     testEdgeCases();
     testOverview();

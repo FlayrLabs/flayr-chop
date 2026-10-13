@@ -4,3 +4,6 @@ dist/
 demos/
 *.wav
 .DS_Store
+tests/eval/music_local.py
+tests/eval/labels.local.tsv
+__pycache__/

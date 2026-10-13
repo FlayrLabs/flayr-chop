@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.24)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS")
 set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Universal binary")
 
-project(FlayrChop VERSION 1.0.0)
+project(FlayrChop VERSION 1.1.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -11,6 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 option(FLAYR_CHOP_COPY_AFTER_BUILD "Install the plugins into the user's plug-in folders after building" ON)
 option(FLAYR_CHOP_BUILD_TOOLS "Build the UI snapshot tool (needs a desktop session)" OFF)
 option(FLAYR_CHOP_BUILD_TESTS "Build the test suites" ON)
+option(FLAYR_CHOP_TEST_HOOKS "Local UI testing only: FLAYR_CHOP_AUTOLOAD env var loads a track" OFF)
 
 include(FetchContent)
 FetchContent_Declare(JUCE
@@ -67,6 +68,9 @@ set(FLAYR_CHOP_SOURCES
 
 target_sources(FlayrChop PRIVATE ${FLAYR_CHOP_SOURCES})
 target_include_directories(FlayrChop PRIVATE Source)
+if(FLAYR_CHOP_TEST_HOOKS)
+    target_compile_definitions(FlayrChop PRIVATE FLAYR_CHOP_TEST_HOOKS=1)
+endif()
 
 target_compile_definitions(FlayrChop PUBLIC
     JUCE_WEB_BROWSER=0
@@ -96,6 +100,16 @@ if(FLAYR_CHOP_BUILD_TESTS)
     target_include_directories(sampler_test PRIVATE Source)
     target_link_libraries(sampler_test PRIVATE signalsmith-stretch)
     add_test(NAME sampler_test COMMAND sampler_test)
+
+    # Opens the editor during playback and reports what changes frame to frame.
+    juce_add_console_app(FlayrChopOpenTest PRODUCT_NAME "FlayrChopOpenTest")
+    target_sources(FlayrChopOpenTest PRIVATE tools/opentest.cpp ${FLAYR_CHOP_SOURCES})
+    target_include_directories(FlayrChopOpenTest PRIVATE Source)
+    target_compile_definitions(FlayrChopOpenTest PRIVATE
+        JucePlugin_Name="Flayr Chop" JucePlugin_VersionString="${PROJECT_VERSION}" JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
+        JUCE_USE_MP3AUDIOFORMAT=1 JUCE_USE_FLAC=1 JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_link_libraries(FlayrChopOpenTest PRIVATE juce::juce_audio_utils juce::juce_cryptography juce::juce_recommended_config_flags
+        signalsmith-stretch ${FLAYR_CHOP_STEMS_TARGET})
 endif()
 
 if(FLAYR_CHOP_BUILD_TOOLS)
@@ -108,4 +122,11 @@ if(FLAYR_CHOP_BUILD_TOOLS)
         JUCE_USE_MP3AUDIOFORMAT=1 JUCE_USE_FLAC=1 JUCE_MODAL_LOOPS_PERMITTED=1)
     target_link_libraries(FlayrChopSnapshot PRIVATE juce::juce_audio_utils juce::juce_cryptography juce::juce_recommended_config_flags
         signalsmith-stretch ${FLAYR_CHOP_STEMS_TARGET})
+
+
+    # A tiny real-window host for checking the editor as a DAW shows it.
+    juce_add_gui_app(FlayrChopMiniHost PRODUCT_NAME "FlayrChopMiniHost")
+    target_sources(FlayrChopMiniHost PRIVATE tools/minihost.cpp)
+    target_compile_definitions(FlayrChopMiniHost PRIVATE JUCE_PLUGINHOST_VST3=1 JUCE_PLUGINHOST_AU=1 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+    target_link_libraries(FlayrChopMiniHost PRIVATE juce::juce_audio_utils juce::juce_recommended_config_flags)
 endif()

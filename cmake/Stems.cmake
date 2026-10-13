@@ -11,6 +11,10 @@
 # Set FLAYR_CHOP_EIGEN_DIR to a local Eigen checkout to build offline.
 # macOS links Accelerate (system framework, nothing to bundle). Windows and
 # Linux use Eigen's own kernels. No OpenMP, no dylibs.
+# x86-64 (Windows, Linux, the x86_64 slice of a macOS universal build): the
+# network is compiled twice, portable and AVX2+FMA (Source/stems/EngineAvx2.cpp,
+# no global -mavx2 or /arch flag needed), and the engine is picked at run time
+# from CPUID. FLAYR_CHOP_STEMS_DISPATCH=OFF drops the AVX2 copy.
 
 include_guard(GLOBAL)
 include(FetchContent)
@@ -18,7 +22,8 @@ include(FetchContent)
 set(FLAYR_CHOP_STEMS_ROOT "${CMAKE_CURRENT_LIST_DIR}/..")
 set(FLAYR_CHOP_EIGEN_DIR "" CACHE PATH "Optional local Eigen source dir (commit dd8c71e6) (skips download)")
 option(FLAYR_CHOP_STEMS_ACCELERATE "macOS: route Eigen GEMMs to Accelerate (system framework)" ON)
-option(FLAYR_CHOP_STEMS_AVX2 "x86_64 (non-Apple): compile the stems engine with AVX2+FMA (faster, needs a 2013+ CPU)" OFF)
+option(FLAYR_CHOP_STEMS_DISPATCH "x86_64: also build an AVX2+FMA network engine, picked at run time on CPUs that support it" ON)
+option(FLAYR_CHOP_STEMS_AVX2 "x86_64 (non-Apple): compile the whole stems library with AVX2+FMA (needs a 2013+ CPU; not needed with FLAYR_CHOP_STEMS_DISPATCH)" OFF)
 
 if(FLAYR_CHOP_EIGEN_DIR)
     set(_flayr_chop_eigen_inc "${FLAYR_CHOP_EIGEN_DIR}")
@@ -47,6 +52,8 @@ set(_demucs_dir "${FLAYR_CHOP_STEMS_ROOT}/Source/stems/third_party/demucs.cpp")
 add_library(flayr_chop_stems STATIC
     "${FLAYR_CHOP_STEMS_ROOT}/Source/stems/Stems.cpp"
     "${FLAYR_CHOP_STEMS_ROOT}/Source/stems/Resampler.cpp"
+    "${FLAYR_CHOP_STEMS_ROOT}/Source/stems/Engine.cpp"
+    "${FLAYR_CHOP_STEMS_ROOT}/Source/stems/EngineAvx2.cpp"
     "${_demucs_dir}/crosstransformer.cpp"
     "${_demucs_dir}/dsp.cpp"
     "${_demucs_dir}/encdec.cpp"
@@ -55,7 +62,10 @@ add_library(flayr_chop_stems STATIC
     "${_demucs_dir}/model_inference.cpp"
     "${_demucs_dir}/model_load.cpp"
     "${FLAYR_CHOP_STEMS_ROOT}/Source/stems/Stems.h"
-    "${FLAYR_CHOP_STEMS_ROOT}/Source/stems/Resampler.h")
+    "${FLAYR_CHOP_STEMS_ROOT}/Source/stems/Resampler.h"
+    "${FLAYR_CHOP_STEMS_ROOT}/Source/stems/Engine.h"
+    "${FLAYR_CHOP_STEMS_ROOT}/Source/stems/EngineImpl.inc"
+    "${FLAYR_CHOP_STEMS_ROOT}/Source/stems/EnginePrelude.h")
 
 target_compile_features(flayr_chop_stems PUBLIC cxx_std_17)
 set_target_properties(flayr_chop_stems PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -66,6 +76,11 @@ target_include_directories(flayr_chop_stems SYSTEM PRIVATE "${_flayr_chop_eigen_
 target_compile_definitions(flayr_chop_stems PRIVATE
     EIGEN_MPL2_ONLY            # refuse any LGPL Eigen code
     EIGEN_DONT_PARALLELIZE     # we thread across segments ourselves
+    # One heap / static alignment for every engine build (generic and AVX2
+    # code share the loaded model's Eigen buffers; see Source/stems/Engine.h).
+    EIGEN_MAX_ALIGN_BYTES=32
+    EIGEN_MAX_STATIC_ALIGN_BYTES=16
+    $<$<NOT:$<BOOL:${FLAYR_CHOP_STEMS_DISPATCH}>>:FLAYR_STEMS_NO_AVX2_ENGINE>
     $<$<NOT:$<CONFIG:Debug>>:NDEBUG>
     $<$<NOT:$<CONFIG:Debug>>:EIGEN_NO_DEBUG>)
 

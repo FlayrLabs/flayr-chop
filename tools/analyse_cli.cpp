@@ -1,7 +1,10 @@
 // analyse_cli: run the Flayr Chop analysis engine on a WAV file and print the results.
 //
 // Build: clang++ -O2 -std=c++17 tools/analyse_cli.cpp -o analyse_cli
-// Usage: analyse_cli file.wav [cues=16] [--onsets] [--beats N]
+// Usage: analyse_cli file.wav [cues=16] [--onsets] [--beats N] [--stems DIR]
+//
+// --stems DIR runs the stem-aware analysis with DIR/Drums.wav, DIR/Bass.wav, DIR/Other.wav and
+// DIR/Vocals.wav (as written by stems_cli; Other + Vocals form the harmonic part, missing files are skipped).
 //
 // The WAV reader handles RIFF/WAVE PCM 8/16/24/32-bit, IEEE float 32/64, and WAVE_FORMAT_EXTENSIBLE,
 // any channel count (downmixed to mono).
@@ -80,14 +83,16 @@ bool readWav(const char* path, std::vector<float>& mono, double& sr, std::string
 
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::fprintf(stderr, "usage: %s file.wav [cues=16] [--onsets] [--beats N]\n", argv[0]);
+        std::fprintf(stderr, "usage: %s file.wav [cues=16] [--onsets] [--beats N] [--stems DIR]\n", argv[0]);
         return 2;
     }
     int cues = 16;
     bool printOnsets = false;
     double beatsPerCue = 1.0;
+    std::string stemDir;
     for (int i = 2; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--onsets")) printOnsets = true;
+        else if (!std::strcmp(argv[i], "--stems") && i + 1 < argc) stemDir = argv[++i];
         else if (!std::strcmp(argv[i], "--beats") && i + 1 < argc) beatsPerCue = std::atof(argv[++i]);
         else cues = std::atoi(argv[i]);
     }
@@ -96,10 +101,34 @@ int main(int argc, char** argv) {
     std::string err;
     if (!readWav(argv[1], x, sr, err)) { std::fprintf(stderr, "%s: %s\n", argv[1], err.c_str()); return 1; }
 
+    // Optional stems, resampled by nothing: they must share the mix's rate and length (stems_cli does).
+    std::vector<float> drums, bass, harm;
+    if (!stemDir.empty()) {
+        auto load = [&](const char* name, std::vector<float>& out) {
+            double s2 = 0;
+            std::string e2;
+            const std::string path = stemDir + "/" + name;
+            if (!readWav(path.c_str(), out, s2, e2)) { out.clear(); return false; }
+            if (s2 != sr) { std::fprintf(stderr, "%s: rate %.0f differs from the mix, ignored\n", path.c_str(), s2); out.clear(); return false; }
+            out.resize(x.size(), 0.f);
+            return true;
+        };
+        load("Drums.wav", drums);
+        load("Bass.wav", bass);
+        std::vector<float> vox;
+        if (load("Other.wav", harm) && load("Vocals.wav", vox))
+            for (size_t i = 0; i < harm.size(); ++i) harm[i] += vox[i];
+        else if (harm.empty())
+            harm.swap(vox);
+    }
+
     using clk = std::chrono::steady_clock;
     namespace A = chop::analysis;
     const auto t0 = clk::now();
-    const A::Result r = A::analyse(x.data(), (int)x.size(), sr);
+    const A::Result r = stemDir.empty()
+                            ? A::analyse(x.data(), (int)x.size(), sr)
+                            : A::analyseWithStems(x.data(), drums.empty() ? nullptr : drums.data(), bass.empty() ? nullptr : bass.data(),
+                                                  harm.empty() ? nullptr : harm.data(), (int)x.size(), sr);
     const auto t1 = clk::now();
     const auto autoCues = A::chop(r, x.data(), (int)x.size(), sr, cues, A::ChopMode::Auto);
     const auto beatCues = A::chop(r, x.data(), (int)x.size(), sr, cues, A::ChopMode::Beats, beatsPerCue);
@@ -112,6 +141,13 @@ int main(int argc, char** argv) {
     std::printf("length    %.2f s @ %.0f Hz\n", x.size() / sr, sr);
     std::printf("bpm       %.2f  (conf %.2f)  first beat %.3f s\n", r.bpm, r.bpmConfidence, r.firstBeatSec);
     std::printf("key       %s  (%s, conf %.2f)\n", A::keyName(r.key, r.minor), A::wheelCode(r.key, r.minor), r.keyConfidence);
+    std::printf("tempi    ");
+    for (const auto& c : r.tempoCandidates) std::printf(" %.2f (%.2f)", c.bpm, c.score);
+    std::printf("\nkeys     ");
+    for (const auto& c : r.keyCandidates) std::printf(" %s (%.2f)", A::keyName(c.key, c.minor), c.score);
+    std::printf("\n");
+    if (!stemDir.empty())
+        std::printf("stems     drums %s, bass %s, harmonic %s\n", drums.empty() ? "-" : "yes", bass.empty() ? "-" : "yes", harm.empty() ? "-" : "yes");
     std::printf("onsets    %zu\n", r.onsetsSec.size());
     if (printOnsets)
         for (size_t i = 0; i < r.onsetsSec.size(); ++i) std::printf("  %9.4f  %.2f\n", r.onsetsSec[i], r.onsetStrength[i]);

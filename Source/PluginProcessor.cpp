@@ -27,6 +27,32 @@ SourcePtr buildSource (const LoadedSample& s, const std::vector<StereoPtr>& stem
     return src;
 }
 
+// Tempo and key again, from the separated parts: drums for the beat, bass and the rest for the key.
+analysis::Result analyseFromStems (const LoadedSample& s, const std::vector<StereoPtr>& stems, const juce::StringArray& names)
+{
+    const int n = s.original->size();
+    const auto mix = monoMix (*s.original);
+    std::vector<float> drums, bass, harmonic ((size_t) n, 0.0f);
+    bool anyHarmonic = false;
+    for (int i = 0; i < names.size() && i < (int) stems.size(); ++i)
+    {
+        const auto m = monoMix (*stems[(size_t) i]);
+        const auto name = names[i].toLowerCase();
+        if (name.contains ("drum"))
+            drums = m;
+        else if (name.contains ("bass"))
+            bass = m;
+        else
+        {
+            for (int k = 0; k < n; ++k)
+                harmonic[(size_t) k] += m[(size_t) k];
+            anyHarmonic = true;
+        }
+    }
+    return analysis::analyseWithStems (mix.data(), drums.empty() ? nullptr : drums.data(), bass.empty() ? nullptr : bass.data(),
+                                       anyHarmonic ? harmonic.data() : nullptr, n, s.fileRate);
+}
+
 Pad sanitise (Pad p, double lengthSec)
 {
     auto clampF = [] (float v, float lo, float hi, float fallback) { return std::isfinite (v) ? juce::jlimit (lo, hi, v) : fallback; };
@@ -68,6 +94,11 @@ FlayrChopProcessor::FlayrChopProcessor()
     }
     publishPads();
     startTimerHz (30);
+#if FLAYR_CHOP_TEST_HOOKS
+    // Local UI tests only (never in release builds): load a track at start-up.
+    if (const auto* path = std::getenv ("FLAYR_CHOP_AUTOLOAD"))
+        loadFile (juce::File (juce::String::fromUTF8 (path)));
+#endif
 }
 
 FlayrChopProcessor::~FlayrChopProcessor()
@@ -397,16 +428,18 @@ void FlayrChopProcessor::clearPads (int firstPad, int count)
     publishPads();
 }
 
-void FlayrChopProcessor::setSampleBpm (double bpm)
+void FlayrChopProcessor::setSampleBpm (double bpm, bool fromUser)
 {
     sampleBpm = juce::jlimit (20.0, 400.0, bpm);
+    bpmFromUser = bpmFromUser || fromUser;
     sendChangeMessage();
 }
 
-void FlayrChopProcessor::setSampleKey (int key, bool minor)
+void FlayrChopProcessor::setSampleKey (int key, bool minor, bool fromUser)
 {
     sampleKey = ((key % 12) + 12) % 12;
     sampleMinor = minor;
+    keyFromUser = keyFromUser || fromUser;
     sendChangeMessage();
 }
 
@@ -490,10 +523,12 @@ void FlayrChopProcessor::loadFile (const juce::File& file)
         loadCachedStems (file, loaded->original->size(), stems, names);
         const auto id = (uint64_t) juce::Time::currentTimeMillis();
         auto src = buildSource (*loaded, stems, rate, id);
+        const auto refined = stems.empty() ? analysis::Result {} : analyseFromStems (*loaded, stems, names);
 
         std::lock_guard<std::mutex> lock (inboxMutex);
-        inbox.push_back ([this, loaded, names, src, rate] {
+        inbox.push_back ([this, loaded, names, src, rate, refined] {
             applyLoaded (loaded, pendingPadState != nullptr);
+            applyRefined (loaded, refined);
             stemNames = names;
             source = src;
             sourceRate = rate;
@@ -510,6 +545,7 @@ void FlayrChopProcessor::applyLoaded (std::shared_ptr<LoadedSample> loaded, bool
 {
     sample = loaded;
     missingFile = juce::File();
+    refinedFromStems = false;
     const auto& a = loaded->analysis;
     if (pendingPadState != nullptr)
     {
@@ -521,6 +557,8 @@ void FlayrChopProcessor::applyLoaded (std::shared_ptr<LoadedSample> loaded, bool
         sampleFirstBeat = juce::jlimit (0.0, loaded->lengthSec(), finiteOr (st.getProperty ("firstBeat", a.firstBeatSec), 0.0));
         sampleKey = ((int) st.getProperty ("key", a.key) % 12 + 12) % 12;
         sampleMinor = st.getProperty ("minor", a.minor);
+        bpmFromUser = st.getProperty ("bpmFromUser", false);
+        keyFromUser = st.getProperty ("keyFromUser", false);
         for (int i = 0; i < kNumPads; ++i)
         {
             const auto t = st.getChildWithProperty ("index", i);
@@ -546,6 +584,7 @@ void FlayrChopProcessor::applyLoaded (std::shared_ptr<LoadedSample> loaded, bool
     }
     else
     {
+        bpmFromUser = keyFromUser = false;
         sampleBpm = a.bpm > 0 ? a.bpm : 120.0;
         sampleFirstBeat = a.firstBeatSec;
         sampleKey = a.key;
@@ -620,6 +659,34 @@ static bool downloadModel (const std::string& path, std::atomic<float>& progress
     return tmp.moveFileTo (dest);
 }
 
+void FlayrChopProcessor::applyRefined (const std::shared_ptr<LoadedSample>& s, const analysis::Result& r)
+{
+    if (sample != s || r.bpm <= 0.0)
+        return;
+    // Onsets stay from the full mix (cues snap to what you hear); tempo, grid and key come from the stems.
+    auto& a = sample->analysis;
+    a.bpm = r.bpm;
+    a.bpmConfidence = r.bpmConfidence;
+    a.firstBeatSec = r.firstBeatSec;
+    a.key = r.key;
+    a.minor = r.minor;
+    a.keyConfidence = r.keyConfidence;
+    a.tempoCandidates = r.tempoCandidates;
+    a.keyCandidates = r.keyCandidates;
+    if (! bpmFromUser)
+    {
+        sampleBpm = r.bpm;
+        sampleFirstBeat = r.firstBeatSec;
+    }
+    if (! keyFromUser)
+    {
+        sampleKey = r.key;
+        sampleMinor = r.minor;
+    }
+    refinedFromStems = true;
+    sendChangeMessage();
+}
+
 void FlayrChopProcessor::separateStems()
 {
     if (sample == nullptr || busy != Busy::None)
@@ -681,12 +748,14 @@ void FlayrChopProcessor::separateStems()
         }
         saveCachedStems (s->file, s->fileRate, stemBufs, names);
         auto src = buildSource (*s, stemBufs, rate, (uint64_t) juce::Time::currentTimeMillis());
+        const auto refined = analyseFromStems (*s, stemBufs, names);
 
         std::lock_guard<std::mutex> lock (inboxMutex);
-        inbox.push_back ([this, s, names, src, rate] {
+        inbox.push_back ([this, s, names, src, rate, refined] {
             busy = Busy::None;
             if (sample != s)
                 return;
+            applyRefined (s, refined);
             stemNames = names;
             source = src;
             sourceRate = rate;
@@ -858,6 +927,8 @@ void FlayrChopProcessor::getStateInformation (juce::MemoryBlock& destData)
     s.setProperty ("firstBeat", sampleFirstBeat, nullptr);
     s.setProperty ("key", sampleKey, nullptr);
     s.setProperty ("minor", sampleMinor, nullptr);
+    s.setProperty ("bpmFromUser", bpmFromUser, nullptr);
+    s.setProperty ("keyFromUser", keyFromUser, nullptr);
     for (int i = 0; i < kNumPads; ++i)
     {
         const auto& p = pads[(size_t) i];

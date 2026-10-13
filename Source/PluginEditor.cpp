@@ -620,19 +620,20 @@ FlayrChopEditor::FlayrChopEditor (FlayrChopProcessor& owner) : AudioProcessorEdi
     styleLabel (renderLabel, 11.0f, false, ui::warn, juce::Justification::centredLeft);
     keyArrow.setText (juce::String::fromUTF8 ("\xe2\x86\x92"), juce::dontSendNotification);
     bpmArrow.setText (juce::String::fromUTF8 ("\xe2\x86\x92"), juce::dontSendNotification);
-    bpmFrom.setEditable (false, true);
-    bpmFrom.setTooltip ("Double-click to type the sample's real BPM");
+    bpmFrom.setEditable (false, false); // "Type a value..." in its menu opens the editor
+    bpmFrom.setTooltip ("The sample's tempo. Click for alternatives or to type it.");
+    bpmFrom.addMouseListener (this, false);
     bpmFrom.onTextChange = [this] {
         const double v = bpmFrom.getText().retainCharacters ("0123456789.").getDoubleValue();
         if (v > 20.0) proc.setSampleBpm (v);
         refreshAll();
     };
-    keyFrom.setTooltip ("Detected key. Right-click to correct it.");
+    keyFrom.setTooltip ("The sample's key. Click to correct it.");
     keyFrom.addMouseListener (this, false);
 
     addAndMakeVisible (keyTo);
     keyTo.onChange = [this] { if (keyTo.getSelectedId() > 0) setTargetKey (keyTo.getSelectedId() - 1); };
-    for (auto* b : { &keyDown, &keyUp, &halfBtn, &doubleBtn })
+    for (auto* b : { &keyDown, &keyUp, &halfBtn, &doubleBtn, &tapBtn })
         addAndMakeVisible (*b);
     keyDown.onClick = [this] {
         auto* prm = proc.apvts.getParameter ("keyShift");
@@ -646,6 +647,8 @@ FlayrChopEditor::FlayrChopEditor (FlayrChopProcessor& owner) : AudioProcessorEdi
     };
     halfBtn.onClick = [this] { proc.setSampleBpm (proc.getSampleBpm() * 0.5); refreshAll(); };
     doubleBtn.onClick = [this] { proc.setSampleBpm (proc.getSampleBpm() * 2.0); refreshAll(); };
+    tapBtn.setTooltip ("Tap along to the sample's beat to set its tempo");
+    tapBtn.onClick = [this] { tap(); };
     halfBtn.setTooltip ("The sample's BPM was detected double: halve it");
     doubleBtn.setTooltip ("The sample's BPM was detected half: double it");
 
@@ -952,7 +955,14 @@ void FlayrChopEditor::refreshAll()
     keyTo.setSelectedId (proc.getTargetKey() + 1, juce::dontSendNotification);
     keyTo.setEnabled (s != nullptr);
 
-    bpmFrom.setText (s ? juce::String (proc.getSampleBpm(), 1) : "-", juce::dontSendNotification);
+    // Low-confidence detections are marked so they get checked, not trusted.
+    const bool bpmUnsure = s && ! proc.isBpmFromUser() && proc.getBpmConfidence() < 0.4f;
+    const bool keyUnsure = s && ! proc.isKeyFromUser() && proc.getKeyConfidence() < 0.4f;
+    bpmFrom.setText (s ? juce::String (proc.getSampleBpm(), 1) + (bpmUnsure ? "?" : "") : "-", juce::dontSendNotification);
+    bpmFrom.setColour (juce::Label::textColourId, bpmUnsure ? ui::warn : ui::text);
+    if (keyUnsure)
+        keyFrom.setText (keyFrom.getText() + "?", juce::dontSendNotification);
+    keyFrom.setColour (juce::Label::textColourId, keyUnsure ? ui::warn : ui::text);
     const int mode = (int) proc.apvts.getRawParameterValue ("tempoMode")->load();
     bpmTo.setText (s ? juce::String (proc.getTargetBpm(), 1) : "-", juce::dontSendNotification);
     bpmTo.setVisible (mode != 2);
@@ -1051,25 +1061,111 @@ void FlayrChopEditor::paint (juce::Graphics& g)
 
 void FlayrChopEditor::mouseDown (const juce::MouseEvent& e)
 {
-    // Right-click the detected key to correct it.
-    if (e.eventComponent != &keyFrom || ! proc.hasSample())
+    if (! proc.hasSample())
         return;
+    if (e.eventComponent == &keyFrom)
+        showKeyMenu();
+    else if (e.eventComponent == &bpmFrom && e.getNumberOfClicks() == 1)
+        showBpmMenu();
+}
+
+void FlayrChopEditor::showBpmMenu()
+{
+    const auto* s = proc.getSample();
     juce::PopupMenu m;
+    m.addSectionHeader (proc.isRefinedFromStems() ? "Detected (from stems)" : "Detected");
+    const double cur = proc.getSampleBpm();
+    std::vector<double> values;
+    for (const auto& c : s->analysis.tempoCandidates)
+    {
+        values.push_back (c.bpm);
+        m.addItem ((int) values.size(), juce::String (c.bpm, 1) + " BPM" + (values.size() == 1 ? "  (best)" : "  (" + juce::String (juce::roundToInt (c.score * 100.0f)) + "%)"),
+                   true, std::abs (c.bpm - cur) < 0.05);
+    }
+    m.addSeparator();
+    for (double f : { 0.5, 2.0, 2.0 / 3.0, 1.5 })
+    {
+        values.push_back (cur * f);
+        const juce::String label = f == 0.5 ? "Half" : f == 2.0 ? "Double" : f < 1.0 ? "Two thirds" : "Three halves";
+        m.addItem ((int) values.size(), label + " (" + juce::String (cur * f, 1) + ")");
+    }
+    m.addSeparator();
+    m.addItem (1000, "Type a value...");
+    m.addItem (1001, "Tap tempo (use the TAP button)", false);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (bpmFrom), [this, values] (int r) {
+        if (r == 1000)
+            bpmFrom.showEditor();
+        else if (r > 0 && r <= (int) values.size())
+            proc.setSampleBpm (values[(size_t) r - 1]);
+        refreshAll();
+    });
+}
+
+void FlayrChopEditor::showKeyMenu()
+{
+    const auto* s = proc.getSample();
+    juce::PopupMenu m;
+    m.addSectionHeader (proc.isRefinedFromStems() ? "Detected (from stems)" : "Detected");
+    std::vector<std::pair<int, bool>> keys;
+    for (const auto& c : s->analysis.keyCandidates)
+    {
+        keys.push_back ({ c.key, c.minor });
+        m.addItem ((int) keys.size(), juce::String (analysis::keyName (c.key, c.minor)) + "  " + analysis::wheelCode (c.key, c.minor)
+                                          + (keys.size() == 1 ? "  (best)" : "  (" + juce::String (juce::roundToInt (c.score * 100.0f)) + "%)"),
+                   true, proc.getSampleKey() == c.key && proc.isSampleMinor() == c.minor);
+    }
+    // Relative major/minor is the most common mix-up, so it's always one click away.
+    const int rel = proc.isSampleMinor() ? (proc.getSampleKey() + 3) % 12 : (proc.getSampleKey() + 9) % 12;
+    keys.push_back ({ rel, ! proc.isSampleMinor() });
+    m.addSeparator();
+    m.addItem ((int) keys.size(), juce::String ("Relative ") + (proc.isSampleMinor() ? "major: " : "minor: ") + analysis::keyName (rel, ! proc.isSampleMinor()));
     for (int minor = 0; minor < 2; ++minor)
     {
         juce::PopupMenu sub;
         for (int k = 0; k < 12; ++k)
-            sub.addItem (1 + k + 12 * minor, analysis::keyName (k, minor == 1), true,
+            sub.addItem (500 + k + 12 * minor, analysis::keyName (k, minor == 1), true,
                          proc.getSampleKey() == k && proc.isSampleMinor() == (minor == 1));
-        m.addSubMenu (minor ? "Minor" : "Major", sub);
+        m.addSubMenu (minor ? "All minor keys" : "All major keys", sub);
     }
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (keyFrom), [this] (int r) {
-        if (r > 0)
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (keyFrom), [this, keys] (int r) {
+        if (r >= 500)
+            proc.setSampleKey ((r - 500) % 12, r - 500 >= 12);
+        else if (r > 0 && r <= (int) keys.size())
+            proc.setSampleKey (keys[(size_t) r - 1].first, keys[(size_t) r - 1].second);
+        refreshAll();
+    });
+}
+
+void FlayrChopEditor::tap()
+{
+    const double now = juce::Time::getMillisecondCounterHiRes() / 1000.0;
+    if (! taps.empty() && now - taps.back() > 2.0)
+        taps.clear(); // a pause starts a new count
+    taps.push_back (now);
+    if (taps.size() > 9)
+        taps.erase (taps.begin());
+    if (taps.size() >= 4 && proc.hasSample())
+    {
+        // Least-squares slope through the taps: steadier than averaging intervals.
+        const double n = (double) taps.size();
+        double sx = 0, sy = 0, sxx = 0, sxy = 0;
+        for (size_t i = 0; i < taps.size(); ++i)
         {
-            proc.setSampleKey ((r - 1) % 12, r > 12);
+            sx += (double) i; sy += taps[i]; sxx += (double) i * i; sxy += (double) i * taps[i];
+        }
+        const double period = (n * sxy - sx * sy) / (n * sxx - sx * sx);
+        if (period > 0.15 && period < 3.0)
+        {
+            double bpm = 60.0 / period;
+            // If a detected candidate is within 3%, take its precise value.
+            for (const auto& c : proc.getSample()->analysis.tempoCandidates)
+                if (std::abs (c.bpm - bpm) / bpm < 0.03)
+                    bpm = c.bpm;
+            proc.setSampleBpm (bpm);
             refreshAll();
         }
-    });
+    }
+    tapBtn.setButtonText ("TAP " + juce::String ((int) taps.size()));
 }
 
 void FlayrChopEditor::paintOverChildren (juce::Graphics& g)
@@ -1123,6 +1219,7 @@ void FlayrChopEditor::resized()
         bpmFrom.setBounds (t.removeFromLeft (70));
         halfBtn.setBounds (t.removeFromLeft (32).reduced (1, 6));
         doubleBtn.setBounds (t.removeFromLeft (32).reduced (1, 6));
+        tapBtn.setBounds (t.removeFromLeft (46).reduced (1, 6));
         bpmArrow.setBounds (t.removeFromLeft (24));
         auto to = t.removeFromLeft (120);
         bpmTo.setBounds (to);
