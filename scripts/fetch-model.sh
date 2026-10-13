@@ -8,7 +8,7 @@
 #   scripts/fetch-model.sh all
 #   scripts/fetch-model.sh --dir /some/folder [4s|6s|ft|all]
 #
-# Source: ggml float16 repack of Meta's MIT-licensed Demucs weights, made with
+# Source (4s mirrored on github.com/FlayrLabs/flayr-chop releases): ggml float16 repack of Meta's MIT-licensed Demucs weights, made with
 # sevagh/demucs.cpp's convert script, hosted at
 # https://huggingface.co/datasets/Retrobear/demucs.cpp . Every file is checked
 # against a pinned SHA-256 before it is moved into place. The weights are not
@@ -16,6 +16,8 @@
 set -euo pipefail
 
 BASE_URL="https://huggingface.co/datasets/Retrobear/demucs.cpp/resolve/main"
+# The default 4-stem model is mirrored on Flayr Chop's own releases.
+MIRROR_4S="https://github.com/FlayrLabs/flayr-chop/releases/download/model-htdemucs-4s-v1"
 
 dest=""
 which="4s"
@@ -82,7 +84,9 @@ while read -r name size sum; do
   fi
   echo "fetching $name ($((size / 1048576)) MB)"
   part="$target.part"
-  curl -fL --retry 3 --retry-delay 2 --progress-bar -o "$part" "$BASE_URL/$name"
+  url="$BASE_URL/$name"
+  [ "$name" = "ggml-model-htdemucs-4s-f16.bin" ] && url="$MIRROR_4S/$name"
+  curl -fL --retry 3 --retry-delay 2 --progress-bar -o "$part" "$url"
   got="$(sha256 "$part")"
   if [ "$got" != "$sum" ]; then
     rm -f "$part"

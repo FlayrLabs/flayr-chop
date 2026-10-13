@@ -41,7 +41,7 @@ constexpr int kModelRate = demucscpp::SUPPORTED_SAMPLE_RATE; // 44100
 // point at a mirror (for example a GitHub release asset); the file must keep
 // the name and SHA-256 listed in kKnownModels[0].
 constexpr const char* kDefaultModelUrl =
-    "https://huggingface.co/datasets/Retrobear/demucs.cpp/resolve/main/ggml-model-htdemucs-4s-f16.bin";
+    "https://github.com/FlayrLabs/flayr-chop/releases/download/model-htdemucs-4s-v1/ggml-model-htdemucs-4s-f16.bin";
 
 // Known model releases (ggml f16 repacks from demucs.cpp).
 struct KnownModel {
