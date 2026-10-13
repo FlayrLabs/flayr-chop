@@ -33,7 +33,7 @@ jobs:
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
           & $iscc "/DAppVersion=$version" "/DSourceDir=$pwd\build\FlayrChop_artefacts\Release\VST3" packaging\windows\FlayrChop.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/*.exe
       - uses: actions/upload-artifact@v4
@@ -70,7 +70,7 @@ jobs:
           cp -R "build/FlayrChop_artefacts/Release/LV2/Flayr Chop.lv2" "dist/$pkg/"
           cp packaging/linux/install.sh LICENSE "dist/$pkg/"
           tar -C dist -czf "dist/$pkg.tar.gz" "$pkg"
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/*.tar.gz
       - uses: actions/upload-artifact@v4
