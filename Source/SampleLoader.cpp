@@ -238,6 +238,11 @@ std::shared_ptr<Stereo> readAll (juce::AudioFormatReader& reader, int frames, co
     auto st = std::make_shared<Stereo>();
     st->resize (frames);
     const int rightCh = reader.numChannels > 1 ? 1 : 0;
+    // What openChecked validated. A reader can change these while it decodes (found by fuzzing: a
+    // FLAC file whose stream info changed the rate from 153 kHz to 545 Hz mid-file), and the caller
+    // goes on using the reader's values, so a file that changes them is damaged.
+    const auto rate = reader.sampleRate;
+    const auto channels = reader.numChannels;
     juce::AudioBuffer<float> tmp (2, 1 << 16);
     for (int pos = 0; pos < frames;)
     {
@@ -247,6 +252,8 @@ std::shared_ptr<Stereo> readAll (juce::AudioFormatReader& reader, int frames, co
         tmp.clear();
         if (! reader.read (&tmp, 0, n, pos, true, true))
             return nullptr; // short or failed read
+        if (reader.sampleRate != rate || reader.numChannels != channels)
+            return nullptr;
         // Float files can hold NaN, infinities or absurd values, and none of that may reach the
         // analysis or the host: anything non-finite becomes silence, the rest is kept within +-16
         // (+24 dBFS, far above any real recording).

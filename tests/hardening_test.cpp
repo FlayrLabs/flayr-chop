@@ -341,6 +341,15 @@ static void crashFiles (const juce::File& dir)
         CHECK (refusedOrFinite (b.save (dir.getChildFile ("smpl-4gb.wav"))), "a 4 GB smpl chunk didn't load cleanly");
     }
 
+    // Found by fuzzing: a FLAC file whose stream info changes mid-file (153 kHz checked, 545 Hz by the
+    // end of the read) loaded at the unchecked rate. A reader that changes its rate or channel count
+    // while decoding now means a damaged file.
+    {
+        chop::LoadedSample s;
+        const bool ok = chop::loadSample (fixtures.getChildFile ("flac-rate-change.flac"), s, error);
+        CHECK (! ok || (s.fileRate >= 8000.0 && s.fileRate <= 768000.0), "loaded at an unchecked rate: %f", s.fileRate);
+    }
+
     // Longer than 20 minutes at a sane rate (header only; the length check comes before any read).
     CHECK (refused (rf64Wav (dir.getChildFile ("long.wav"), 8000, 8000ULL * 8 * 1300, 64), error), "21-minute file not refused");
 
