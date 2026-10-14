@@ -90,7 +90,8 @@ public:
 
     bool hasSample() const { return sample != nullptr; }
     const chop::LoadedSample* getSample() const { return sample.get(); }
-    juce::String getFileName() const { return sample ? sample->file.getFileNameWithoutExtension() : missingFile.getFileNameWithoutExtension(); }
+    juce::String getFileName() const { return sample ? sampleOriginal.getFileNameWithoutExtension() : missingFile.getFileNameWithoutExtension(); }
+    juce::File getLibraryCopy() const { return sampleLibrary; }
     bool isFileMissing() const { return sample == nullptr && missingFile != juce::File(); }
     juce::File getMissingFile() const { return missingFile; }
     Busy getBusy() const { return busy; }
@@ -182,6 +183,10 @@ private:
     int sampleKey = 0;
     bool sampleMinor = false;
     juce::File missingFile;
+    juce::File sampleOriginal, sampleLibrary; // what the loaded sample saves as "path" and "libraryPath"
+    uint64_t loadGeneration = 0;              // only the newest load's result is applied
+    void restoreSample (const juce::String& path, const juce::String& libraryPath);
+    void loadCandidates (const juce::File& original, std::vector<juce::File> candidates, const juce::File& knownLibraryCopy);
     Busy busy = Busy::None;
     std::atomic<float> progress { 0.0f };
     juce::String status;

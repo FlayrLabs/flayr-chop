@@ -89,8 +89,12 @@ project doesn't separate again.
 The plug-in takes your computer keyboard while you're working in it; click your DAW to give it
 back.
 
-Projects remember the file path, cues, pad settings and detected tempo and key. If you move the
-file, drop it on the plug-in again to relink.
+Projects remember the file path, cues, pad settings and detected tempo and key. Every sample you
+load also gets a copy in `Music/Flayr Chop/Samples` (a clone that takes no extra space where the
+disk supports it, and one copy per sound however often you use it), so projects reopen even in
+hosts that only let plug-ins read a few folders, such as Logic. If both the file and its copy are
+gone, drop the file on the plug-in again to relink. Samples on network shares are never opened
+automatically when a project loads; drop them on the plug-in to relink.
 
 ## Building from source
 

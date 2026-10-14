@@ -584,40 +584,111 @@ void FlayrChopProcessor::runJob (std::function<void()> job)
 
 void FlayrChopProcessor::loadFile (const juce::File& file)
 {
-    // A relink while a restored project waits: the project now saves with the new path.
+    // A relink while a restored project waits: the project now saves with the new path (and the old
+    // library copy no longer belongs to it).
     if (pendingPadState != nullptr)
+    {
         pendingPadState->setProperty ("path", file.getFullPathName(), nullptr);
+        pendingPadState->removeProperty ("libraryPath", nullptr);
+    }
+    loadCandidates (file, { file }, {});
+}
+
+// Restoring a project: the original path first, then its library copy. Network paths from the
+// project are never touched (see isNetworkPath); the user can relink to them by hand.
+void FlayrChopProcessor::restoreSample (const juce::String& path, const juce::String& libraryPath)
+{
+    const bool absolute = juce::File::isAbsolutePath (path);
+    const auto original = absolute ? juce::File (path) : juce::File();
+    std::vector<juce::File> candidates;
+    if (absolute && ! isNetworkPath (path))
+        candidates.push_back (original);
+    juce::File library;
+    if (libraryPath.isNotEmpty() && ! isNetworkPath (libraryPath) && juce::File::isAbsolutePath (libraryPath))
+        if (const juce::File f (libraryPath); f.isAChildOf (sampleLibraryFolder()))
+            library = f;
+    if (library != juce::File())
+        candidates.push_back (library);
+
+    if (candidates.empty())
+    {
+        // Keep everything so a relink restores the project as it was.
+        missingFile = original;
+        status = "Missing file: " + path;
+        if (isNetworkPath (path))
+            status << "  (network locations aren't opened automatically: drop the file here to relink)";
+        sendChangeMessage();
+        return;
+    }
+    loadCandidates (original, candidates, library);
+}
+
+void FlayrChopProcessor::loadCandidates (const juce::File& original, std::vector<juce::File> candidates,
+                                         const juce::File& knownLibraryCopy)
+{
+    const auto generation = ++loadGeneration;
     busy = Busy::Loading;
-    status = "Loading " + file.getFileName() + "...";
+    status = "Loading " + original.getFileName() + "...";
     progress = 0.0f;
     sendChangeMessage();
     const double rate = hostRate.load() > 0.0 ? hostRate.load() : 48000.0;
 
-    runJob ([this, file, rate] {
+    runJob ([this, original, candidates, knownLibraryCopy, rate, generation] {
         auto loaded = std::make_shared<LoadedSample>();
         juce::String error;
-        if (! loadSample (file, *loaded, error, [this] { return cancelJob.load(); }))
+        bool ok = false;
+        for (const auto& f : candidates)
         {
+            juce::String why;
+            if (loadSample (f, *loaded, why, [this] { return cancelJob.load(); }))
+            {
+                ok = true;
+                break;
+            }
+            if (error.isEmpty())
+                error = why;
+            if (cancelJob)
+                break;
+        }
+        if (! ok)
+        {
+            const bool gone = ! isNetworkPath (original.getFullPathName()) && ! original.existsAsFile();
             std::lock_guard<std::mutex> lock (inboxMutex);
-            inbox.push_back ([this, error, file] {
+            inbox.push_back ([this, error, original, gone, generation] {
+                if (generation != loadGeneration)
+                    return; // a newer load owns the model (and the pending restore) now
                 busy = Busy::None;
-                status = error;
+                status = gone ? "Missing file: " + original.getFullPathName() : error;
                 if (sample == nullptr && error.isNotEmpty())
-                    missingFile = file;
+                    missingFile = original;
                 sendChangeMessage();
             });
             return;
         }
+
+        // A library copy, so a sandboxed host can read the sample next time too (see libraryCopyOf).
+        juce::File library = knownLibraryCopy;
+        if (isInLibrary (loaded->file)) // already somewhere hosts can read: no copy needed
+            library = loaded->file.isAChildOf (sampleLibraryFolder()) ? loaded->file : juce::File();
+        else if (! (library.existsAsFile() && library.getSize() == loaded->file.getSize()))
+            library = libraryCopyOf (loaded->file);
+        loaded->cacheFile = library != juce::File() ? library : loaded->file;
+
         std::vector<StereoPtr> stems;
         juce::StringArray names;
-        loadCachedStems (file, loaded->original->size(), stems, names);
+        if (! loadCachedStems (loaded->cacheFile, loaded->original->size(), stems, names) && loaded->cacheFile != loaded->file)
+            loadCachedStems (loaded->file, loaded->original->size(), stems, names);
         const auto id = (uint64_t) juce::Time::currentTimeMillis();
         auto src = buildSource (*loaded, stems, rate, id);
         const auto refined = stems.empty() ? analysis::Result {} : analyseFromStems (*loaded, stems, names);
 
         std::lock_guard<std::mutex> lock (inboxMutex);
-        inbox.push_back ([this, loaded, names, src, rate, refined] {
+        inbox.push_back ([this, loaded, names, src, rate, refined, original, library, generation] {
+            if (generation != loadGeneration)
+                return; // an older load finishing late must not consume a newer pending restore
             applyLoaded (loaded, pendingPadState != nullptr);
+            sampleOriginal = original;
+            sampleLibrary = library;
             applyRefined (loaded, refined);
             stemNames = names;
             source = src;
@@ -861,7 +932,7 @@ void FlayrChopProcessor::separateStems()
             stemBufs.push_back (st);
             names.add (sep.names[i]);
         }
-        saveCachedStems (s->file, s->fileRate, stemBufs, names);
+        saveCachedStems (s->cacheFile, s->fileRate, stemBufs, names);
         auto src = buildSource (*s, stemBufs, rate, (uint64_t) juce::Time::currentTimeMillis());
         const auto refined = analyseFromStems (*s, stemBufs, names);
 
@@ -892,7 +963,8 @@ void FlayrChopProcessor::removeStems()
 {
     if (sample == nullptr || busy != Busy::None)
         return;
-    stemCacheFolder (sample->file).deleteRecursively();
+    stemCacheFolder (sample->cacheFile).deleteRecursively();
+    stemCacheFolder (sample->file).deleteRecursively(); // older caches were keyed on the file read
     stemNames.clear();
     numStemsAudio = 0;
     auto s = std::make_shared<Source> (*source);
@@ -930,7 +1002,7 @@ void FlayrChopProcessor::timerCallback()
             // Stems at the file's rate live in the on-disk cache, not in memory.
             std::vector<StereoPtr> st;
             juce::StringArray names;
-            loadCachedStems (s->file, s->original->size(), st, names);
+            loadCachedStems (s->cacheFile, s->original->size(), st, names);
             auto src = buildSource (*s, st, rate, (uint64_t) juce::Time::currentTimeMillis());
             std::lock_guard<std::mutex> lock (inboxMutex);
             inbox.push_back ([this, src, rate, s] {
@@ -1378,8 +1450,12 @@ void FlayrChopProcessor::getStateInformation (juce::MemoryBlock& destData)
 juce::ValueTree FlayrChopProcessor::buildSampleState() const
 {
     juce::ValueTree s ("Sample");
-    const auto file = sample ? sample->file : missingFile;
+    // "path" stays the file the user chose (older versions read only this); "libraryPath" is the copy
+    // a sandboxed host can always read (see libraryCopyOf).
+    const auto file = sample ? sampleOriginal : missingFile;
     s.setProperty ("path", file.getFullPathName(), nullptr);
+    if (sample != nullptr && sampleLibrary != juce::File())
+        s.setProperty ("libraryPath", sampleLibrary.getFullPathName(), nullptr);
     s.setProperty ("bpm", sampleBpm, nullptr);
     s.setProperty ("firstBeat", sampleFirstBeat, nullptr);
     s.setProperty ("key", sampleKey, nullptr);
@@ -1550,19 +1626,12 @@ void FlayrChopProcessor::applyState (const juce::XmlElement& xml)
     snapUI = ui.getProperty ("snap", true);
 
     const auto s = root.getChildWithName ("Sample");
-    const juce::File file (s.getProperty ("path").toString());
-    if (s.isValid() && file != juce::File())
+    const auto path = s.getProperty ("path").toString();
+    if (s.isValid() && path.isNotEmpty())
     {
+        // Kept until the sample loads, so a relink (or a save meanwhile) restores the project as it was.
         pendingPadState = std::make_unique<juce::ValueTree> (s.createCopy());
-        if (file.existsAsFile())
-            loadFile (file);
-        else
-        {
-            // Keep everything so a relink (or the file coming back) restores the project as it was.
-            missingFile = file;
-            status = "Missing file: " + file.getFullPathName();
-            sendChangeMessage();
-        }
+        restoreSample (path, s.getProperty ("libraryPath").toString());
     }
     refreshStateSnapshot();
 }

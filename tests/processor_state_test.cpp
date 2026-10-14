@@ -125,6 +125,7 @@ int main()
     juce::ScopedJuceInitialiser_GUI gui;
     const auto dir = juce::File::createTempFile ("flayr-chop-state");
     dir.createDirectory();
+    chop::setSampleLibraryFolderForTests (dir.getChildFile ("Music/Flayr Chop/Samples")); // never the real one
     const auto wav = writeWav (dir.getChildFile ("loop.wav"), 5.0);
     const auto relinked = writeWav (dir.getChildFile ("moved.wav"), 5.0);
     const auto missing = dir.getChildFile ("gone/loop.wav");

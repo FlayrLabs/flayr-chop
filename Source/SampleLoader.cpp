@@ -1,6 +1,12 @@
 #include "SampleLoader.h"
 #include "stems/Resampler.h"
 
+#include <juce_cryptography/juce_cryptography.h>
+
+#if JUCE_MAC
+#include <copyfile.h>
+#endif
+
 namespace chop
 {
 namespace
@@ -47,6 +53,69 @@ bool isAudioFile (const juce::File& f)
         if (f.getFileName().matchesWildcard (w, true))
             return true;
     return false;
+}
+
+bool isNetworkPath (const juce::String& path)
+{
+    const auto p = path.trimStart();
+    return p.startsWith ("\\\\") || p.startsWith ("//") || p.startsWith ("\\/") || p.startsWith ("/\\")
+           || p.startsWithIgnoreCase ("/net/") || p.startsWithIgnoreCase ("/Network/") || p.startsWithIgnoreCase ("smb:")
+           || p.startsWithIgnoreCase ("file:");
+}
+
+static juce::File& libraryFolderOverride()
+{
+    static juce::File f;
+    return f;
+}
+
+void setSampleLibraryFolderForTests (const juce::File& folder)
+{
+    libraryFolderOverride() = folder;
+}
+
+juce::File sampleLibraryFolder()
+{
+    if (libraryFolderOverride() != juce::File())
+        return libraryFolderOverride();
+    return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Flayr Chop").getChildFile ("Samples");
+}
+
+bool isInLibrary (const juce::File& f)
+{
+    return f.isAChildOf (sampleLibraryFolder().getParentDirectory());
+}
+
+juce::File libraryCopyOf (const juce::File& original)
+{
+    const auto src = original.getLinkedTarget(); // copy the audio, never a link back to the original
+    if (! src.existsAsFile())
+        return {};
+    const auto hash = juce::SHA256 (src).toHexString();
+    auto ext = src.getFileExtension().toLowerCase();
+    if (ext.length() > 8 || ! ext.substring (1).containsOnly ("abcdefghijklmnopqrstuvwxyz0123456789"))
+        ext = {};
+    const auto folder = sampleLibraryFolder();
+    const auto dest = folder.getChildFile (hash + ext);
+    if (dest.existsAsFile() && dest.getSize() == src.getSize())
+        return dest;
+    if (! folder.createDirectory())
+        return {};
+
+    // Written under a temporary name and renamed, so a half-written copy is never picked up.
+    const auto tmp = folder.getChildFile (hash + "." + juce::Uuid().toString() + ".part");
+    bool copied = false;
+#if JUCE_MAC
+    copied = copyfile (src.getFullPathName().toRawUTF8(), tmp.getFullPathName().toRawUTF8(), nullptr, COPYFILE_CLONE) == 0;
+#else
+    copied = src.copyFileTo (tmp);
+#endif
+    if (! copied || tmp.getSize() != src.getSize() || ! tmp.moveFileTo (dest))
+    {
+        tmp.deleteFile();
+        return dest.existsAsFile() && dest.getSize() == src.getSize() ? dest : juce::File();
+    }
+    return dest;
 }
 
 std::vector<float> monoMix (const Stereo& s)

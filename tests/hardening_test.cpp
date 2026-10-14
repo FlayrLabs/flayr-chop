@@ -3,8 +3,11 @@
 #include "PluginProcessor.h"
 #include "stems/Resampler.h"
 
+#include <juce_cryptography/juce_cryptography.h>
+
 #include <cstdio>
 #include <thread>
+#include <sys/stat.h>
 
 static int failures = 0, checks = 0;
 #define CHECK(cond, ...)                                    \
@@ -465,16 +468,160 @@ static void threadedState (const juce::File& dir)
     }
 }
 
+//==============================================================================
+// Project paths on other machines are never opened (or checked) on restore.
+static void networkPaths()
+{
+    for (auto* path : { "\\\\attacker\\share\\loop.wav", "//attacker/share/loop.wav", "/net/attacker/loop.wav",
+                        "/Network/Servers/attacker/loop.wav", "\\\\?\\UNC\\attacker\\share\\loop.wav", "smb://attacker/loop.wav" })
+    {
+        CHECK (chop::isNetworkPath (path), "not a network path: %s", path);
+        FlayrChopProcessor p;
+        juce::ValueTree root ("FlayrChop");
+        juce::ValueTree s ("Sample");
+        s.setProperty ("path", path, nullptr);
+        s.setProperty ("libraryPath", path, nullptr);
+        juce::ValueTree t ("Pad");
+        t.setProperty ("index", 3, nullptr);
+        t.setProperty ("cue", 1.5, nullptr);
+        s.appendChild (t, nullptr);
+        root.appendChild (s, nullptr);
+        juce::MemoryBlock mb;
+        juce::AudioProcessor::copyXmlToBinary (*root.createXml(), mb);
+        p.setStateInformation (mb.getData(), (int) mb.getSize());
+        // Decided without starting a load: no worker ever saw the path.
+        CHECK (p.getBusy() == FlayrChopProcessor::Busy::None && ! p.hasSample(), "%s: a load was started", path);
+        CHECK (p.isFileMissing() || ! juce::File::isAbsolutePath (path), "%s: not reported missing", path);
+        CHECK (p.getStatus().contains ("Missing"), "%s: status '%s'", path, p.getStatus().toRawUTF8());
+        const auto saved = sampleIn (stateFrom (p, false));
+        CHECK (saved.getProperty ("path").toString() == path && saved.getChildWithProperty ("index", 3).isValid(),
+               "%s: the project didn't save back unchanged", path);
+    }
+    for (auto* path : { "/Users/me/Music/loop.wav", "C:\\Music\\loop.wav", "/Volumes/Drive/loop.wav", "/network-music/loop.wav" })
+        CHECK (! chop::isNetworkPath (path), "local path taken for a network one: %s", path);
+}
+
+// The library copy (fix for sandboxed hosts): a project whose original can't be read loads from it.
+static juce::File noiseWav (const juce::File& f, double seconds)
+{
+    f.getParentDirectory().createDirectory();
+    juce::Random rng (juce::Time::currentTimeMillis()); // unique audio, so the copy is ours alone
+    const double sr = 48000.0;
+    juce::AudioBuffer<float> buf (2, (int) (seconds * sr));
+    for (int c = 0; c < 2; ++c)
+        for (int i = 0; i < buf.getNumSamples(); ++i)
+            buf.setSample (c, i, (i % 24000 < 300 ? 0.6f : 0.05f) * (rng.nextFloat() * 2.0f - 1.0f));
+    f.deleteFile();
+    juce::WavAudioFormat wav;
+    std::unique_ptr<juce::OutputStream> stream = std::make_unique<juce::FileOutputStream> (f);
+    auto w = wav.createWriterFor (stream, juce::AudioFormatWriterOptions {}.withSampleRate (sr).withNumChannels (2).withBitsPerSample (16));
+    if (w != nullptr)
+        w->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples());
+    return f;
+}
+
+static void libraryCopies (const juce::File& dir)
+{
+    const auto original = noiseWav (dir.getChildFile ("sandboxed/My Song.wav"), 3.0);
+    juce::File copy;
+    juce::MemoryBlock saved;
+    {
+        FlayrChopProcessor p;
+        p.loadFile (original);
+        CHECK (waitLoaded (p), "library: never loaded");
+        copy = p.getLibraryCopy();
+        CHECK (copy.existsAsFile() && copy.isAChildOf (chop::sampleLibraryFolder()), "library: no copy (%s)", copy.getFullPathName().toRawUTF8());
+        CHECK (copy.getFileName() == juce::SHA256 (original).toHexString() + ".wav", "library: copy named %s", copy.getFileName().toRawUTF8());
+        CHECK (copy.getSize() == original.getSize(), "library: copy size");
+        CHECK (p.getFileName() == "My Song", "library: shows '%s' instead of the original name", p.getFileName().toRawUTF8());
+        chop::Pad pad;
+        pad.cue = 1.0;
+        p.setPad (9, pad);
+        saved = stateFrom (p, false);
+        const auto s = sampleIn (saved);
+        CHECK (s.getProperty ("path").toString() == original.getFullPathName(), "library: path is not the original");
+        CHECK (s.getProperty ("libraryPath").toString() == copy.getFullPathName(), "library: libraryPath not saved");
+
+        // The same audio from somewhere else shares the copy.
+        const auto twin = dir.getChildFile ("twin.wav");
+        original.copyFileTo (twin);
+        CHECK (chop::libraryCopyOf (twin) == copy, "library: same audio, second copy");
+    }
+    {
+        // The original exists but can't be read (what Logic's AU sandbox does to ~/Music/Logic and
+        // ~/Downloads): the project loads from the library copy and still saves the original path.
+        original.setReadOnly (true);
+        ::chmod (original.getFullPathName().toRawUTF8(), 0);
+        FlayrChopProcessor p;
+        p.setStateInformation (saved.getData(), (int) saved.getSize());
+        CHECK (waitLoaded (p), "unreadable original: library copy not used (status '%s')", p.getStatus().toRawUTF8());
+        CHECK (p.getPad (9).hasCue() && std::abs (p.getPad (9).cue - 1.0) < 1e-6, "unreadable original: pads not restored");
+        const auto s = sampleIn (stateFrom (p, false));
+        CHECK (s.getProperty ("path").toString() == original.getFullPathName(), "unreadable original: path changed");
+        CHECK (s.getProperty ("libraryPath").toString() == copy.getFullPathName(), "unreadable original: libraryPath lost");
+        ::chmod (original.getFullPathName().toRawUTF8(), 0644);
+    }
+    {
+        // A libraryPath outside the library folder is ignored (a project can't point the loader anywhere).
+        FlayrChopProcessor p;
+        const auto st = projectState (p, dir.getChildFile ("gone.wav"), nullptr, original.getFullPathName());
+        p.setStateInformation (st.getData(), (int) st.getSize());
+        pump (0.5);
+        waitIdle (p);
+        CHECK (! p.hasSample() && p.isFileMissing(), "libraryPath outside the library was loaded");
+    }
+    {
+        // Both gone: missing, and the project saves back as it came (relink still possible).
+        copy.deleteFile();
+        original.deleteFile();
+        FlayrChopProcessor p;
+        p.setStateInformation (saved.getData(), (int) saved.getSize());
+        waitIdle (p);
+        CHECK (! p.hasSample() && p.isFileMissing(), "both gone: not missing");
+        const auto s = sampleIn (stateFrom (p, false));
+        CHECK (s.getChildWithProperty ("index", 9).isValid() && s.getProperty ("libraryPath").toString() == copy.getFullPathName(),
+               "both gone: project not saved back unchanged");
+    }
+    dir.getChildFile ("twin.wav").deleteFile();
+}
+
+// The state format older versions (and hand-made Logic projects) carry: no version, no UI, no
+// libraryPath, a parameters child and a Sample with only a path and pads.
+static void legacyState (const juce::File& dir)
+{
+    const auto wav = goodWav (dir.getChildFile ("legacy.wav"), 3.0);
+    const juce::String xml = "<FlayrChop><FlayrChop><PARAM id=\"volume\" value=\"-6.0\"/><PARAM id=\"keyShift\" value=\"2.0\"/></FlayrChop>"
+                             "<Sample path=\"" + wav.getFullPathName() + "\" bpm=\"100.0\">"
+                             "<Pad index=\"0\" cue=\"0.5\"/><Pad index=\"12\" cue=\"2.0\" gain=\"-3.0\"/></Sample></FlayrChop>";
+    juce::MemoryOutputStream out;
+    out.writeInt (0x21324356);
+    out.writeInt ((int) xml.getNumBytesAsUTF8());
+    out << xml;
+    out.writeByte (0);
+    FlayrChopProcessor p;
+    p.setStateInformation (out.getData(), (int) out.getDataSize());
+    CHECK (waitLoaded (p), "legacy state: never loaded");
+    CHECK (p.getPad (12).hasCue() && std::abs (p.getPad (12).cue - 2.0) < 1e-6 && std::abs (p.getSampleBpm() - 100.0) < 1e-6,
+           "legacy state: project not applied");
+    CHECK (std::abs (p.apvts.getRawParameterValue ("volume")->load() + 6.0f) < 1e-3f, "legacy state: parameters not applied");
+    if (const auto copy = p.getLibraryCopy(); copy.existsAsFile())
+        copy.deleteFile();
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI gui;
     const auto dir = juce::File::createTempFile ("flayr-chop-hardening");
     dir.createDirectory();
+    chop::setSampleLibraryFolderForTests (dir.getChildFile ("Music/Flayr Chop/Samples")); // never the real one
 
     crashFiles (dir);
     stateXml();
     nanState (dir);
     threadedState (dir);
+    networkPaths();
+    libraryCopies (dir);
+    legacyState (dir);
 
     dir.deleteRecursively();
     std::printf ("hardening_test: %d checks, %d failures\n", checks, failures);
