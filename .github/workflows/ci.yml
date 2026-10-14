@@ -55,3 +55,44 @@ jobs:
             build/FlayrChop_artefacts/Release/LV2
           if-no-files-found: error
           retention-days: 14
+
+  fuzz:
+    # Builds the fuzz targets with clang's libFuzzer + ASan + UBSan and runs each one briefly over its
+    # seeds and the committed regression inputs (scripts/fuzz.sh). Long runs happen locally.
+    name: Fuzz smoke (Linux, libFuzzer)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libfreetype6-dev libfontconfig1-dev libx11-dev libxcomposite-dev \
+            libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev libgl1-mesa-dev
+
+      - name: Configure
+        run: >
+          cmake -S . -B build-fuzz -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+          -DFLAYR_CHOP_COPY_AFTER_BUILD=OFF -DFLAYR_CHOP_BUILD_TESTS=OFF
+          -DFLAYR_CHOP_BUILD_FUZZERS=ON -DFLAYR_CHOP_FUZZ_ENGINE=libfuzzer
+
+      - name: Build
+        run: cmake --build build-fuzz --parallel 4 --target fuzz_sample_load fuzz_state_restore fuzz_model_parser fuzz_stem_cache
+
+      - name: Fuzz (60 s per target)
+        env:
+          FLAYR_CHOP_FUZZ_DIR: ${{ runner.temp }}/fuzz
+        run: scripts/fuzz.sh build-fuzz 60
+
+      - name: Upload crashing inputs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-artifacts
+          path: ${{ runner.temp }}/fuzz/*/artifacts
+          if-no-files-found: ignore
+          retention-days: 14

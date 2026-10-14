@@ -12,6 +12,7 @@ option(FLAYR_CHOP_COPY_AFTER_BUILD "Install the plugins into the user's plug-in 
 option(FLAYR_CHOP_BUILD_TOOLS "Build the UI snapshot tool (needs a desktop session)" OFF)
 option(FLAYR_CHOP_BUILD_TESTS "Build the test suites" ON)
 option(FLAYR_CHOP_TEST_HOOKS "Local UI testing only: FLAYR_CHOP_AUTOLOAD env var loads a track" OFF)
+option(FLAYR_CHOP_BUILD_FUZZERS "Build the fuzz targets in tests/fuzz (ASan + UBSan; a separate non-release build only)" OFF)
 
 include(FetchContent)
 # Dependencies are pinned to exact commits (a tag can be moved; a commit hash can't). When bumping,
@@ -140,6 +141,10 @@ if(FLAYR_CHOP_BUILD_TESTS)
         JUCE_USE_MP3AUDIOFORMAT=1 JUCE_USE_FLAC=1 JUCE_MODAL_LOOPS_PERMITTED=1)
     target_link_libraries(FlayrChopOpenTest PRIVATE juce::juce_audio_utils juce::juce_cryptography juce::juce_recommended_config_flags
         signalsmith-stretch ${FLAYR_CHOP_STEMS_TARGET})
+endif()
+
+if(FLAYR_CHOP_BUILD_FUZZERS)
+    include(cmake/Fuzzers.cmake)
 endif()
 
 if(FLAYR_CHOP_BUILD_TOOLS)

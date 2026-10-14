@@ -34,6 +34,22 @@ Please include:
   render to the pull request.
 - **Validate the plug-in** with [pluginval](https://github.com/Tracktion/pluginval) at strictness 8 or higher.
 - Only describe features in your own words; don't use other products' names or trademarks in the UI or docs.
+- **Changes to anything that parses files or project state** (audio decoding, `setStateInformation`,
+  the stem model or stem cache): run the fuzz targets for a while, in a separate build directory
+  (never a release build):
+
+  ```sh
+  cmake -S . -B build-fuzz -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+        -DFLAYR_CHOP_COPY_AFTER_BUILD=OFF -DFLAYR_CHOP_BUILD_TESTS=OFF -DFLAYR_CHOP_BUILD_FUZZERS=ON
+  cmake --build build-fuzz --target fuzz_sample_load fuzz_state_restore fuzz_model_parser fuzz_stem_cache
+  scripts/fuzz.sh build-fuzz 900          # 15 minutes per target
+  ```
+
+  libFuzzer is used when the compiler has it; Apple's clang doesn't, so on macOS the targets use the
+  small coverage-guided engine in `tests/fuzz/FuzzDriver.cpp` instead (both with ASan and UBSan). A
+  finding stops the run and leaves the input in the reported `artifacts` folder; replay it with
+  `fuzz_<target> <file>`. Fix it, then commit the input under `tests/fuzz/regressions/<target>/` and add
+  a check for it to `tests/hardening_test.cpp` (or `tests/stems_test.cpp`).
 
 ## Releases (maintainers)
 

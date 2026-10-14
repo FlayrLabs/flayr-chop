@@ -1,0 +1,26 @@
+# UBSan reports the fuzz runs ignore (UBSAN_OPTIONS=suppressions=..., set by scripts/fuzz.sh). Each is
+# a known, benign pattern in third-party code, never our own sources: keep this list short and
+# specific, and say why. Everything else stops the run.
+
+# JUCE's codecs scale decoded integer samples with `sample << shift`: undefined for negative values
+# before C++20, well defined (two's complement) from C++20 on. Every real file with a negative sample
+# hits it. Over-wide shifts (shift-exponent) stay checked.
+shift-base:juce_FlacAudioFormat.cpp
+shift-base:juce_AiffAudioFormat.cpp
+shift-base:juce_WavAudioFormat.cpp
+shift-base:juce_AudioFormatReader.cpp
+
+# libFLAC (bundled in JUCE) stores a raw 2-bit field in an enum and switches on it; the switch's
+# default case rejects the values the enum doesn't name. Decoding a damaged file hits it.
+enum:stream_decoder.c
+
+# libFLAC's encoder (the stem cache writer) computes `NULL + offset` for an unused residual buffer
+# before checking it; the pointer is never dereferenced. Fixed in later libFLAC releases.
+pointer-overflow:stream_encoder.c
+
+# libFLAC's predictors (fixed and LPC) restore samples in 32-bit arithmetic when the frame header says
+# that can't overflow; residuals from a damaged frame can still overflow, which wraps on every target
+# and gives garbage sample values (bounded integers, scaled to floats like any other). No memory is
+# touched outside the frame's buffers.
+signed-integer-overflow:libFLAC/fixed.c
+signed-integer-overflow:lpc_flac.c
