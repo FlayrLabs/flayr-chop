@@ -96,6 +96,16 @@ hosts that only let plug-ins read a few folders, such as Logic. If both the file
 gone, drop the file on the plug-in again to relink. Samples on network shares are never opened
 automatically when a project loads; drop them on the plug-in to relink.
 
+**Where Flayr Chop keeps files, and how to clear them.** On every platform the copies in
+`Music/Flayr Chop/Samples` stay until you delete them, and on Windows and Linux (no clones) each one
+takes the full size of the sample. Projects store the copy's path, whose name is a SHA-256 checksum
+of the audio. Delete the folder whenever you like: projects whose original files are still in
+place just make a new copy the next time they load. Separated stems are cached per sample (macOS
+`~/Library/Application Support/Flayr Chop/stems`, Windows `%APPDATA%\Flayr Chop\stems`, Linux
+`~/.config/Flayr Chop/stems`) and can be deleted the same way: stems are separated again when needed.
+The stem model is in `Flayr Chop/models` (macOS `~/Library/Application Support`, Windows `%APPDATA%`,
+Linux `~/.local/share` or `$XDG_DATA_HOME`).
+
 ## Building from source
 
 Needs CMake 3.24+ and a C++17 compiler. JUCE, Signalsmith Stretch and Eigen are downloaded at
