@@ -90,6 +90,7 @@ bool modelAvailable(const std::string& path);
 const char* defaultModelFileName();
 const char* defaultModelUrl();
 const char* defaultModelSha256();
+long long defaultModelSize(); // bytes
 
 // Default worker count used when numThreads <= 0.
 int defaultThreadCount();
@@ -112,6 +113,14 @@ bool forceEngine(const std::string& name);
 // separations skip the load. Call this to free them, e.g. when the editor
 // closes or the plug-in is unloaded. Safe to call at any time.
 void releaseCachedModels();
+
+// SHA-256 of a buffer as lowercase hex (the model check uses it).
+std::string sha256Hex(const void* data, size_t size);
+
+// For tests: parses a model image without the checksum (separate() always
+// checks the SHA-256 first). False for malformed data, which must never read
+// or write out of bounds.
+bool parseModelImage(const void* data, size_t size, std::string* error = nullptr);
 
 // Resampling helper used internally, exposed for tests and the plug-in.
 // Resamples `in` from inRate to outRate producing exactly outLength samples

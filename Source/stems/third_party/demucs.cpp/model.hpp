@@ -647,6 +647,11 @@ struct demucs_segment_buffers
 bool load_demucs_model(const std::string &model_dir,
                        struct demucs_model *model);
 
+// Flayr Chop: the same, from a model image in memory. Malformed data returns
+// false (never reads or writes out of bounds).
+bool load_demucs_model_from_memory(const unsigned char *data, size_t size,
+                                   struct demucs_model *model);
+
 const float SEGMENT_LEN_SECS = 7.8;      // 8 seconds, the demucs chunk size
 const float SEGMENT_OVERLAP_SECS = 0.25; // 0.25 overlap
 const float MAX_SHIFT_SECS = 0.5;        // max shift

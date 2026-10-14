@@ -21,6 +21,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <random>
 #include <string>
 #include <vector>
@@ -145,6 +146,106 @@ void testHelpers(const std::filesystem::path& tmp)
     check(!chop::stems::separate(nullptr, a.data(), 10, 44100.0, junk.string(), out, nullptr, 1, &err),
           "separate() rejects null input");
     std::filesystem::remove(junk);
+}
+
+// Model files are untrusted: the checksum is checked on every load and the
+// parser survives malformed headers.
+void testModelIntegrity(const std::filesystem::path& tmp)
+{
+    check(chop::stems::sha256Hex("abc", 3) == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+          "sha256(\"abc\")");
+    check(chop::stems::sha256Hex("", 0) == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "sha256(\"\")");
+    {
+        std::string million(1000000, 'a');
+        check(chop::stems::sha256Hex(million.data(), million.size()) ==
+                  "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0",
+              "sha256(1M x 'a')");
+    }
+
+    // Right size, right magic, wrong bytes: passes the cheap check, refused before parsing.
+    const auto fake = tmp / "ggml-model-htdemucs-4s-f16.bin";
+    {
+        std::ofstream f(fake, std::ios::binary);
+        const uint32_t magic = 0x646d6334;
+        f.write(reinterpret_cast<const char*>(&magic), 4);
+        std::vector<char> zeros(1 << 20, 0);
+        long long left = 83994361LL - 4;
+        while (left > 0) {
+            const auto n = (std::streamsize)std::min<long long>(left, (long long)zeros.size());
+            f.write(zeros.data(), n);
+            left -= n;
+        }
+    }
+    check(chop::stems::modelAvailable(fake.string()), "right-size fake model passes the cheap check");
+    {
+        std::vector<float> a(44100, 0.1f);
+        chop::stems::Separated out;
+        std::string err;
+        const bool ok = chop::stems::separate(a.data(), a.data(), (int)a.size(), 44100.0, fake.string(), out, nullptr, 1, &err);
+        check(!ok && err.find("checksum") != std::string::npos, "tampered right-size model refused: " + err);
+    }
+    std::filesystem::remove(fake);
+
+    // Hand-made images for the parser (no checksum on this path).
+    struct Img {
+        std::vector<unsigned char> b;
+        Img& i32(int32_t v) { const auto* p = reinterpret_cast<const unsigned char*>(&v); b.insert(b.end(), p, p + 4); return *this; }
+        Img& str(const std::string& s) { b.insert(b.end(), s.begin(), s.end()); return *this; }
+        Img& zeros(size_t n) { b.insert(b.end(), n, 0); return *this; }
+    };
+    auto image = [] { Img m; m.i32(0x646d6334); return m; };
+    auto refused = [](const Img& m) { std::string e; return !chop::stems::parseModelImage(m.b.data(), m.b.size(), &e); };
+    check(refused(image()), "parser: no tensors");
+    check(refused(image().i32(100).i32(4).str("abcd")), "parser: n_dims 100 (was a stack overflow)");
+    check(refused(image().i32(5).i32(4).i32(1).i32(1).i32(1).i32(1).i32(1).str("abcd")), "parser: n_dims 5");
+    check(refused(image().i32(0).i32(4).str("abcd")), "parser: n_dims 0");
+    check(refused(image().i32(1).i32(1 << 30).i32(4)), "parser: name length 2^30");
+    check(refused(image().i32(1).i32(-4).i32(4)), "parser: negative name length");
+    check(refused(image().i32(2).i32(4).i32(-3).i32(5).str("abcd")), "parser: negative dimension");
+    check(refused(image().i32(4).i32(4).i32(65536).i32(65536).i32(65536).i32(65536).str("abcd")),
+          "parser: element count overflow");
+    check(refused(image().i32(1).i32(22).i32(48).str("encoder.0.conv.bias")), "parser: truncated header");
+    check(refused(image().i32(1).i32(19).i32(48).str("encoder.0.conv.bias").zeros(10)), "parser: truncated payload");
+    check(refused(image().i32(2).i32(19).i32(24).i32(2).str("encoder.0.conv.bias").zeros(96)),
+          "parser: right element count, wrong shape");
+    check(refused(image().i32(1).i32(4).i32(8).str("nope").zeros(16)), "parser: unknown tensor");
+    // Random headers: nothing may crash (run under ASan to see out-of-bounds reads).
+    uint32_t seed = 12345;
+    auto rnd = [&seed] { seed = seed * 1664525u + 1013904223u; return seed; };
+    int fuzzRefused = 0;
+    for (int k = 0; k < 2000; ++k) {
+        Img m = image();
+        const int words = 1 + (int)(rnd() % 12);
+        for (int w = 0; w < words; ++w)
+            m.i32((rnd() & 1) ? (int32_t)(rnd() % 64) - 8 : (int32_t)rnd());
+        fuzzRefused += refused(m) ? 1 : 0;
+    }
+    check(fuzzRefused == 2000, "parser: 2000 random headers refused (" + std::to_string(fuzzRefused) + ")");
+}
+
+// The real model: the hardened parser still accepts it, and a single flipped byte is refused.
+void testRealModelIntegrity(const std::string& model, const std::filesystem::path& tmp)
+{
+    std::ifstream in(model, std::ios::binary);
+    std::vector<unsigned char> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    std::string err;
+    check(chop::stems::parseModelImage(bytes.data(), bytes.size(), &err), "real model parses: " + err);
+    check(chop::stems::sha256Hex(bytes.data(), bytes.size()) == chop::stems::defaultModelSha256() ||
+              std::filesystem::path(model).filename() != chop::stems::defaultModelFileName(),
+          "real model matches its pinned SHA-256");
+
+    bytes[bytes.size() / 2] ^= 0x01;
+    const auto copy = tmp / std::filesystem::path(model).filename();
+    {
+        std::ofstream out(copy, std::ios::binary);
+        out.write(reinterpret_cast<const char*>(bytes.data()), (std::streamsize)bytes.size());
+    }
+    std::vector<float> a(44100, 0.1f);
+    chop::stems::Separated sep;
+    const bool ok = chop::stems::separate(a.data(), a.data(), (int)a.size(), 44100.0, copy.string(), sep, nullptr, 1, &err);
+    check(!ok && err.find("checksum") != std::string::npos, "one flipped byte in the real model is refused: " + err);
+    std::filesystem::remove(copy);
 }
 
 void testEngineApi()
@@ -408,6 +509,7 @@ int main()
 
     testResampler();
     testHelpers(tmp);
+    testModelIntegrity(tmp);
     testEngineApi();
 
     std::string model = chop::stems::defaultModelPath();
@@ -415,6 +517,7 @@ int main()
         model = env;
     if (chop::stems::modelAvailable(model)) {
         std::printf("model: %s\n", model.c_str());
+        testRealModelIntegrity(model, tmp);
         testWithModel(model);
     } else {
         std::printf("SKIP  model-dependent checks (no model at %s; run scripts/fetch-model.sh)\n", model.c_str());

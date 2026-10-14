@@ -675,7 +675,10 @@ static bool downloadModel (const std::string& path, std::atomic<float>& progress
 {
     const juce::File dest { juce::String (path) };
     dest.getParentDirectory().createDirectory();
-    const auto tmp = dest.getSiblingFile (dest.getFileName() + ".part");
+    // A temp file of our own in the same folder (so the final move is a rename): several plug-in
+    // instances can download at once, and they used to write into one shared ".part".
+    const auto tmp = dest.getSiblingFile (dest.getFileName() + "." + juce::Uuid().toString() + ".part");
+    const juce::int64 expected = stems::defaultModelSize();
     int status = 0;
     auto stream = juce::URL (stems::defaultModelUrl())
                       .createInputStream (juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
@@ -691,7 +694,12 @@ static bool downloadModel (const std::string& path, std::atomic<float>& progress
         return false;
     }
     const auto total = stream->getTotalLength();
-    tmp.deleteFile();
+    if (total > 0 && total != expected)
+    {
+        error = "the download server sent an unexpected file (" + juce::String (total) + " bytes)";
+        return false;
+    }
+    juce::int64 done = 0;
     {
         juce::FileOutputStream out (tmp);
         if (out.failedToOpen())
@@ -700,34 +708,47 @@ static bool downloadModel (const std::string& path, std::atomic<float>& progress
             return false;
         }
         juce::HeapBlock<char> buf (1 << 16);
-        juce::int64 done = 0;
         while (! stream->isExhausted())
         {
             if (cancel)
             {
                 out.flush();
-                tmp.deleteFile();
                 error = "cancelled";
-                return false;
+                break;
             }
             const int n = stream->read (buf.get(), 1 << 16);
             if (n <= 0)
                 break;
-            out.write (buf.get(), (size_t) n);
             done += n;
-            if (total > 0)
-                progress = (float) done / (float) total;
+            if (done > expected)
+            {
+                error = "the download is bigger than the model should be";
+                break;
+            }
+            if (! out.write (buf.get(), (size_t) n))
+            {
+                error = "can't write " + tmp.getFullPathName();
+                break;
+            }
+            progress = (float) done / (float) expected;
         }
     }
-    const auto hash = juce::SHA256 (tmp).toHexString();
-    if (! hash.equalsIgnoreCase (stems::defaultModelSha256()))
+    if (error.isEmpty() && done != expected)
+        error = "the download was incomplete";
+    if (error.isEmpty() && ! juce::SHA256 (tmp).toHexString().equalsIgnoreCase (stems::defaultModelSha256()))
+        error = "the downloaded model failed its checksum";
+    if (error.isNotEmpty())
     {
         tmp.deleteFile();
-        error = "the downloaded model failed its checksum";
         return false;
     }
-    dest.deleteFile();
-    return tmp.moveFileTo (dest);
+    if (! tmp.moveFileTo (dest))
+    {
+        tmp.deleteFile();
+        error = "can't move the model into " + dest.getParentDirectory().getFullPathName();
+        return false;
+    }
+    return true;
 }
 
 void FlayrChopProcessor::applyRefined (const std::shared_ptr<LoadedSample>& s, const analysis::Result& r)
