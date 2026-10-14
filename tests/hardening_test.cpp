@@ -195,6 +195,26 @@ static void crashFiles (const juce::File& dir)
         }
     }
 
+    // Found by fuzzing: a 43-byte FLAC whose header promises 20 minutes at 192 kHz decoded to silence
+    // (3 GB and minutes of CPU). Refused before any buffer is allocated.
+    CHECK (refused (fixtures.getChildFile ("flac-length-bomb.flac"), error), "FLAC length bomb not refused");
+    {
+        // While real compressed files, even long digital silence (FLAC's best case), still load.
+        juce::AudioBuffer<float> silence (2, 44100 * 30);
+        silence.clear();
+        const auto f = dir.getChildFile ("silence.flac");
+        juce::FlacAudioFormat flac;
+        {
+            std::unique_ptr<juce::OutputStream> stream = std::make_unique<juce::FileOutputStream> (f);
+            auto w = flac.createWriterFor (stream, juce::AudioFormatWriterOptions {}.withSampleRate (44100.0).withNumChannels (2).withBitsPerSample (16));
+            if (w != nullptr)
+                w->writeFromAudioSampleBuffer (silence, 0, silence.getNumSamples());
+        }
+        chop::LoadedSample s;
+        CHECK (chop::loadSample (f, s, error) && s.original != nullptr && s.original->size() == silence.getNumSamples(),
+               "30 s of FLAC silence (%d bytes) refused: %s", (int) f.getSize(), error.toRawUTF8());
+    }
+
     // Longer than 20 minutes at a sane rate (header only; the length check comes before any read).
     CHECK (refused (rf64Wav (dir.getChildFile ("long.wav"), 8000, 8000ULL * 8 * 1300, 64), error), "21-minute file not refused");
 

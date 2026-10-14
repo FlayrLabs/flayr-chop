@@ -28,6 +28,7 @@ constexpr double kMinRate = 8000.0, kMaxRate = 768000.0;
 constexpr unsigned int kMaxChannels = 64;
 constexpr juce::int64 kMaxFrames = (juce::int64) (kMaxSeconds * 192000.0); // 20 minutes at 192 kHz
 static_assert (kMaxFrames <= std::numeric_limits<int>::max(), "frame counts are stored as int");
+constexpr juce::int64 kMaxFramesPerCompressedByte = 16384;
 
 // Uncompressed formats store every frame, so a length the file can't hold is a lie.
 bool isUncompressed (const juce::AudioFormatReader& r)
@@ -164,7 +165,7 @@ std::unique_ptr<juce::AudioFormatReader> openChecked (const juce::File& file, in
         return nullptr;
     }
     // Extra, reject-only: uncompressed audio stores every frame, so a length the file is too small
-    // to hold is a lie. Compressed formats are left to the caps above rather than guessed at.
+    // to hold is a lie.
     if (isUncompressed (*reader))
     {
         const auto bytesPerFrame = (juce::int64) reader->numChannels * (juce::int64) ((reader->bitsPerSample + 7) / 8);
@@ -174,12 +175,22 @@ std::unique_ptr<juce::AudioFormatReader> openChecked (const juce::File& file, in
             return nullptr;
         }
     }
+    // Compressed formats can promise any length in a few bytes, and readers pad whatever isn't there
+    // with silence: a 43-byte FLAC header claiming 20 minutes at 192 kHz cost 3 GB and minutes of CPU
+    // to decode, analyse and resample. Real files stay far below this ratio: FLAC's extreme case,
+    // digital silence in 65535-frame blocks, is about 5,000 frames per byte; MP3, AAC and Vorbis are
+    // far lower.
+    else if (length > file.getSize() * kMaxFramesPerCompressedByte)
+    {
+        error = file.getFileName() + " is damaged (its header claims more audio than the file holds)";
+        return nullptr;
+    }
     frames = (int) length; // <= kMaxFrames <= INT_MAX
     return reader;
 }
 
 // Reads exactly `frames` frames (the count openChecked returned) into a new buffer.
-static std::shared_ptr<Stereo> readAll (juce::AudioFormatReader& reader, int frames, const std::function<bool()>& cancelled)
+std::shared_ptr<Stereo> readAll (juce::AudioFormatReader& reader, int frames, const std::function<bool()>& cancelled)
 {
     auto st = std::make_shared<Stereo>();
     st->resize (frames);
