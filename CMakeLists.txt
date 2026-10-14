@@ -101,6 +101,17 @@ if(FLAYR_CHOP_BUILD_TESTS)
     target_link_libraries(sampler_test PRIVATE signalsmith-stretch)
     add_test(NAME sampler_test COMMAND sampler_test)
 
+    # Project save/restore through the real processor.
+    juce_add_console_app(processor_state_test PRODUCT_NAME "processor_state_test")
+    target_sources(processor_state_test PRIVATE tests/processor_state_test.cpp ${FLAYR_CHOP_SOURCES})
+    target_include_directories(processor_state_test PRIVATE Source)
+    target_compile_definitions(processor_state_test PRIVATE
+        JucePlugin_Name="Flayr Chop" JucePlugin_VersionString="${PROJECT_VERSION}" JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
+        JUCE_USE_MP3AUDIOFORMAT=1 JUCE_USE_FLAC=1 JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_link_libraries(processor_state_test PRIVATE juce::juce_audio_utils juce::juce_cryptography juce::juce_recommended_config_flags
+        signalsmith-stretch ${FLAYR_CHOP_STEMS_TARGET})
+    add_test(NAME processor_state_test COMMAND processor_state_test)
+
     # Opens the editor during playback and reports what changes frame to frame.
     juce_add_console_app(FlayrChopOpenTest PRODUCT_NAME "FlayrChopOpenTest")
     target_sources(FlayrChopOpenTest PRIVATE tools/opentest.cpp ${FLAYR_CHOP_SOURCES})
