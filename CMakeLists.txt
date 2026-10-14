@@ -173,11 +173,15 @@ if(FLAYR_CHOP_BUILD_TESTS)
         signalsmith-stretch ${FLAYR_CHOP_STEMS_TARGET})
     add_test(NAME hardening_test COMMAND hardening_test)
 
-    # The release script's check of CI-built release files, against a fake gh (pass and fail-closed).
+    # The release script's checks of CI-built release files and of the draft after upload, against a
+    # fake gh (pass and fail-closed cases).
     find_program(FLAYR_CHOP_BASH bash)
     if(FLAYR_CHOP_BASH AND NOT WIN32)
         add_test(NAME release_verify_test
-                 COMMAND ${FLAYR_CHOP_BASH} tests/release_verify_test.sh scripts/verify-release-assets.sh
+                 COMMAND ${FLAYR_CHOP_BASH} tests/release_verify_test.sh
+                 WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+        add_test(NAME release_upload_test
+                 COMMAND ${FLAYR_CHOP_BASH} tests/release_upload_test.sh
                  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
     endif()
 

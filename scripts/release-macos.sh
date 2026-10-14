@@ -23,6 +23,14 @@
 set -euo pipefail
 
 IDENTITY="${IDENTITY:-Developer ID Application: Flayr Labs LLC (NRNU83UJ68)}"
+REMOTE_URL="https://github.com/FlayrLabs/flayr-chop.git"
+# Test mode (tests/release_e2e_test.sh): a stand-in remote instead of GitHub, with ad-hoc
+# signing forced so nothing it produces can pass for a release.
+if [[ "${FLAYR_RELEASE_TEST:-}" == 1 ]]; then
+    echo "==> TEST MODE: remote ${FLAYR_RELEASE_TEST_REMOTE:?}, ad-hoc signing only; this is not a release" >&2
+    REMOTE_URL="$FLAYR_RELEASE_TEST_REMOTE"
+    IDENTITY="-"
+fi
 NOTARY_PROFILE="${NOTARY_PROFILE:-flayr-notary}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -60,10 +68,15 @@ TAG_SHA="$(g -C "$ROOT" rev-parse -q --verify "refs/tags/$TAG^{commit}" || true)
 [[ -n "$TAG_SHA" ]] || die "tag $TAG does not exist; tag the release commit first"
 [[ "$HEAD_SHA" == "$TAG_SHA" ]] || die "HEAD is not at $TAG (HEAD $HEAD_SHA, $TAG $TAG_SHA)"
 # Asked of GitHub by URL from an empty directory: no local remote or insteadOf can redirect it.
-REMOTE_URL="https://github.com/FlayrLabs/flayr-chop.git"
-REMOTE_SHA="$(cd "$EMPTY" && g ls-remote "$REMOTE_URL" "refs/tags/$TAG^{}" | cut -f1)"
-[[ -n "$REMOTE_SHA" ]] || REMOTE_SHA="$(cd "$EMPTY" && g ls-remote "$REMOTE_URL" "refs/tags/$TAG" | cut -f1)"
-[[ "$REMOTE_SHA" == "$TAG_SHA" ]] || die "$TAG on GitHub (${REMOTE_SHA:-missing}) differs from the local tag; push it first"
+# ls-remote's patterns match ref-name suffixes (a branch "x/refs/tags/v1.3.0" would match),
+# so list all tags and require exactly one exact refs/tags/<tag>^{} (or, for a lightweight
+# tag, refs/tags/<tag>).
+remote_tags="$(cd "$EMPTY" && g ls-remote --tags "$REMOTE_URL")" || die "could not list the tags at $REMOTE_URL"
+exact_ref() { awk -v ref="$1" -F '\t' '$2 == ref { print $1 }' <<< "$remote_tags"; }
+REMOTE_SHA="$(exact_ref "refs/tags/$TAG^{}")"
+[[ -n "$REMOTE_SHA" ]] || REMOTE_SHA="$(exact_ref "refs/tags/$TAG")"
+[[ "$(wc -l <<< "$REMOTE_SHA" | tr -d ' ')" == 1 ]] || die "$TAG is not a single tag at $REMOTE_URL"
+[[ "$REMOTE_SHA" == "$TAG_SHA" ]] || die "$TAG at $REMOTE_URL (${REMOTE_SHA:-missing}) differs from the local tag; push it first"
 
 echo "==> Exporting $TAG ($TAG_SHA)"
 g clone --quiet --bare --no-local --no-tags "file://$ROOT" "$WORK/mirror.git"
@@ -98,8 +111,11 @@ BUILD_ENV=(env -i "PATH=$(dirname "$CMAKE"):/usr/bin:/bin:/usr/sbin:/sbin" "HOME
 
 ART="$BUILD/FlayrChop_artefacts/Release"
 echo "==> Checking the JUCE patches"
-JUCE_SRC="$(sed -n 's/^juce_SOURCE_DIR:STATIC=//p' "$BUILD/CMakeCache.txt")"
-[[ "$JUCE_SRC" == "$BUILD/_deps/juce-src" ]] || die "JUCE came from $JUCE_SRC, not from the pinned download"
+# JUCE's own project(JUCE) caches JUCE_SOURCE_DIR (FetchContent's juce_SOURCE_DIR isn't cached).
+JUCE_SRC="$(sed -n 's/^JUCE_SOURCE_DIR:STATIC=//p' "$BUILD/CMakeCache.txt")"
+[[ -n "$JUCE_SRC" && -d "$JUCE_SRC" ]] || die "could not find JUCE_SOURCE_DIR in $BUILD/CMakeCache.txt"
+[[ "$(cd "$JUCE_SRC" && pwd -P)" == "$(cd "$BUILD/_deps/juce-src" && pwd -P)" ]] \
+    || die "JUCE came from $JUCE_SRC, not from the pinned download"
 patches="$(cd "$SRC" && ls patches/*.patch | sed "s|^|$SRC/|" | paste -sd'|' -)"
 (cd "$JUCE_SRC" && "${BUILD_ENV[@]}" "$CMAKE" "-DPATCHES=$patches" -DCHECK_ONLY=ON -P "$SRC/cmake/ApplyPatch.cmake")
 STAGE="$(mktemp -d)/Flayr Chop"
@@ -141,23 +157,6 @@ spctl --assess --type open --context context:primary-signature --verbose "$DMG"
 echo "==> Done: $DMG"
 
 if [[ "${1:-}" == "--upload" ]]; then
-    REPO=FlayrLabs/flayr-chop
-    # Only ever add to a draft: replacing files on a published release would swap what
-    # people already downloaded and verified.
-    [[ "$(gh release view "$TAG" --repo "$REPO" --json isDraft --jq .isDraft)" == "true" ]] \
-        || die "release $TAG is already published (or missing); refusing to change its files"
-
-    # Checksums only for files we can vouch for, worked out before anything is uploaded: every
-    # file CI put on the draft must be attested by this repo's release workflow for this tag at
-    # exactly $TAG_SHA (scripts/verify-release-assets.sh, from the tag's own sources), plus the DMG
-    # just built. The checksums cover the very bytes that were verified; any failure stops here,
-    # with nothing uploaded.
-    download="$(mktemp -d "$WORK/download.XXXXXX")"
-    verified="$(mktemp -d "$WORK/verified.XXXXXX")"
-    gh release download "$TAG" --repo "$REPO" --dir "$download" --pattern 'FlayrChop-*'
-    GH="$(command -v gh)" "$SRC/scripts/verify-release-assets.sh" "$TAG" "$TAG_SHA" "$download" "$verified" "$DMG"
-
-    gh release upload "$TAG" "$verified/$(basename "$DMG")" --repo "$REPO" # never replaces a file
-    gh release upload "$TAG" "$verified/SHA256SUMS.txt" --repo "$REPO"
-    echo "==> Uploaded $(basename "$DMG") and SHA256SUMS.txt to the draft $TAG"
+    # From the verified tag tree, like the verifier it runs.
+    "$SRC/scripts/upload-release.sh" "$TAG" "$TAG_SHA" "$VERSION" "$DMG"
 fi

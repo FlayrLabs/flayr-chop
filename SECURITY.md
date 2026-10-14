@@ -36,15 +36,25 @@ Audio quality bugs and crashes that need no untrusted input are regular bugs: pl
 
 ## What Flayr Chop does and doesn't do
 
-- **One network request, only when you ask for it.** The first time you press SEPARATE STEMS, the
-  plug-in downloads the stem model over HTTPS and refuses it unless its SHA-256 matches the value
-  pinned in the source (`Source/stems/Stems.cpp`). Nothing else ever connects to the internet:
-  no telemetry, no analytics, no licence check, no auto-update.
-- **Files it reads:** the audio file you load (projects store its path, not the audio).
-- **Files it writes:** the stem model and a per-track stem cache in your user application data
-  folder (`~/Library/Application Support/Flayr Chop` on macOS, `%APPDATA%\Flayr Chop` on
-  Windows, `~/.local/share/Flayr Chop` on Linux); WAV files you export; and slices you drag out
-  of the plug-in, saved in `Music/Flayr Chop/Slices`. Deleting the Flayr Chop folder is always safe.
+- **One network request, only when you ask for it.** Flayr Chop touches the network in exactly one
+  place: when you press SEPARATE STEMS and the stem model isn't on your computer yet. It then
+  downloads `https://github.com/FlayrLabs/flayr-chop/releases/download/model-htdemucs-4s-v1/ggml-model-htdemucs-4s-f16.bin`
+  over HTTPS (GitHub redirects release downloads to its own file servers; at most 8 redirects are
+  followed), refuses anything that isn't exactly the expected size, and keeps the file only if its
+  SHA-256 matches the value pinned in the source (`Source/stems/Stems.cpp`); the model is checked
+  against that SHA-256 again every time it's loaded. Loading samples or projects, playback, analysis
+  and everything else never connect: no telemetry, no analytics, no licence check, no auto-update,
+  and project paths on other machines are never opened automatically. The plug-in declares no
+  sandbox entitlements or AU resource-usage grants of its own; it runs with your DAW's permissions.
+- **Files it reads:** the audio file you load (projects store its path and its library copy's path,
+  not the audio).
+- **Files it writes:** a copy of each sample you load in `Music/Flayr Chop/Samples` (so projects
+  reopen in sandboxed hosts; see the README for clearing it); the stem model
+  (`Flayr Chop/models` in `~/Library/Application Support` on macOS, `%APPDATA%` on Windows,
+  `~/.local/share` on Linux) and a per-track stem cache (`Flayr Chop/stems` in
+  `~/Library/Application Support`, `%APPDATA%`, or `~/.config` on Linux); WAV files you export; and
+  slices you drag out of the plug-in, saved in `Music/Flayr Chop/Slices`. Deleting any of these
+  Flayr Chop folders is always safe.
 - **No elevated privileges.** The plug-in runs with your DAW's permissions. The installers only copy the plug-in into the standard plug-in folders.
 - Saved state from a project is size-limited, and every value is range-checked before use.
 
