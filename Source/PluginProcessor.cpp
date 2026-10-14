@@ -612,6 +612,13 @@ void FlayrChopProcessor::restoreSample (const juce::String& path, const juce::St
 
     if (candidates.empty())
     {
+        // A load still running belongs to the old project: drop its result, it must not take this one's pads.
+        ++loadGeneration;
+        if (busy == Busy::Loading)
+        {
+            cancelJob = true;
+            busy = Busy::None;
+        }
         // Keep everything so a relink restores the project as it was.
         missingFile = original;
         status = "Missing file: " + path;

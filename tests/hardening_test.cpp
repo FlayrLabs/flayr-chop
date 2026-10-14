@@ -559,6 +559,31 @@ static void networkPaths()
         CHECK (saved.getProperty ("path").toString() == path && saved.getChildWithProperty ("index", 3).isValid(),
                "%s: the project didn't save back unchanged", path);
     }
+    {
+        // A load still running when a project with a network path is restored: its late result must
+        // not take that project's pads (or replace its path).
+        const auto wav = goodWav (juce::File::createTempFile (".wav"), 3.0);
+        FlayrChopProcessor p;
+        p.loadFile (wav);
+        juce::Thread::sleep (2500); // the loader finishes; its result waits in the inbox (only the message loop drains it)
+        juce::ValueTree root ("FlayrChop");
+        juce::ValueTree s ("Sample");
+        s.setProperty ("path", "//attacker/share/loop.wav", nullptr);
+        juce::ValueTree t ("Pad");
+        t.setProperty ("index", 3, nullptr);
+        t.setProperty ("cue", 1.5, nullptr);
+        s.appendChild (t, nullptr);
+        root.appendChild (s, nullptr);
+        juce::MemoryBlock mb;
+        juce::AudioProcessor::copyXmlToBinary (*root.createXml(), mb);
+        p.setStateInformation (mb.getData(), (int) mb.getSize());
+        pump (1.0);
+        waitIdle (p);
+        const auto saved = sampleIn (stateFrom (p, false));
+        CHECK (saved.getProperty ("path").toString() == "//attacker/share/loop.wav", "late load replaced the restored project");
+        CHECK (! p.getPad (3).hasCue(), "late load consumed the restored project's pads");
+        wav.deleteFile();
+    }
     for (auto* path : { "/Users/me/Music/loop.wav", "C:\\Music\\loop.wav", "/Volumes/Drive/loop.wav", "/network-music/loop.wav" })
         CHECK (! chop::isNetworkPath (path), "local path taken for a network one: %s", path);
 }
