@@ -53,7 +53,12 @@ inline void initWorkDir (const char* target)
 {
     std::setvbuf (stdout, nullptr, _IONBF, 0);
     std::setvbuf (stderr, nullptr, _IONBF, 0);
-    auto d = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile (juce::String ("flayr-chop-fuzz-") + target);
+    // FUZZ_INSTANCE=n gives parallel runs of one target their own folders (not for state_restore,
+    // whose seeds name files in this folder).
+    auto name = juce::String ("flayr-chop-fuzz-") + target;
+    if (const char* instance = std::getenv ("FUZZ_INSTANCE"))
+        name << "-" << instance;
+    auto d = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile (name);
     d.deleteRecursively();
     d.createDirectory();
     workDir() = d;
