@@ -8,11 +8,14 @@
 //          wraps it in the copyXmlToBinary envelope with the right length
 //   bit 1  restore from another thread (the host-thread path that queues the state)
 //   bit 2  play the restored pads and check the output stays finite
+//   bits 3+4 (both) open the editor on the restored project and render it (macOS and Windows only:
+//          Linux CI machines have no display)
 //
 // Invariant: a project the plug-in accepted must save back into a state it accepts again.
 
 #include "FuzzCommon.h"
 #include "PluginProcessor.h"
+#include "PluginEditor.h"
 
 #include <cmath>
 #include <thread>
@@ -100,6 +103,7 @@ std::vector<fuzz::Bytes> makeSeeds()
     seeds.push_back (asInput (1, full, true));
     seeds.push_back (asInput (2, full, false));
     seeds.push_back (asInput (4, full, false));
+    seeds.push_back (asInput (0x18, full, false));
     {
         FlayrChopProcessor p;
         juce::MemoryBlock empty;
@@ -122,6 +126,7 @@ std::vector<fuzz::Bytes> makeSeeds()
     {
         seeds.push_back (asInput (0, stateOf (xml), false));
         seeds.push_back (asInput (4, stateOf (xml), false));
+        seeds.push_back (asInput (0x18, stateOf (xml), false));
     }
     return seeds;
 }
@@ -220,6 +225,17 @@ extern "C" int LLVMFuzzerTestOneInput (const uint8_t* data, size_t size)
         if ((flags & 4) != 0)
             FUZZ_ASSERT (playFinite (*p), "restored project plays non-finite or huge samples");
     }
+#if JUCE_MAC || JUCE_WINDOWS
+    if ((flags & 0x18) == 0x18)
+    {
+        // The editor shows the restored names, pads, tempo and key: build it and paint it once.
+        std::unique_ptr<juce::AudioProcessorEditor> editor (p->createEditor());
+        FUZZ_ASSERT (editor != nullptr, "no editor");
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (1);
+        const auto image = editor->createComponentSnapshot (editor->getLocalBounds(), true, 0.5f);
+        FUZZ_ASSERT (image.isValid(), "editor didn't render");
+    }
+#endif
     p.reset();
     juce::MessageManager::getInstance()->runDispatchLoopUntil (1);
     return 0;

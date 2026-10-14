@@ -24,7 +24,7 @@ jobs:
           persist-credentials: false
       - name: Build
         run: |
-          cmake -S . -B build -DFLAYR_CHOP_COPY_AFTER_BUILD=OFF -DFLAYR_CHOP_TEST_HOOKS=OFF
+          cmake -S . -B build -DFLAYR_CHOP_COPY_AFTER_BUILD=OFF -DFLAYR_CHOP_TEST_HOOKS=OFF -DFLAYR_CHOP_BUILD_FUZZERS=OFF
           cmake --build build --config Release --parallel 4
           ctest --test-dir build -C Release --output-on-failure
       - name: Installer
@@ -62,7 +62,7 @@ jobs:
             libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev libgl1-mesa-dev
       - name: Build
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DFLAYR_CHOP_COPY_AFTER_BUILD=OFF -DFLAYR_CHOP_TEST_HOOKS=OFF
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DFLAYR_CHOP_COPY_AFTER_BUILD=OFF -DFLAYR_CHOP_TEST_HOOKS=OFF -DFLAYR_CHOP_BUILD_FUZZERS=OFF
           cmake --build build --parallel 4
           ctest --test-dir build --output-on-failure
       - name: Package

@@ -2,7 +2,8 @@
 // stems.txt with the names, then N FLAC files that must each decode to exactly the sample's length),
 // then resampled with the sample into a playable source (buildSource).
 //
-// Input: 4 bytes little-endian expected length (masked to 2^20 frames), then sections separated by
+// Input: 4 bytes little-endian expected length (masked to 2^14 frames: long enough for every code
+// path, short enough that decoding and resampling don't dominate), then sections separated by
 // kSeparator: the first is stems.txt, each further one is i.flac (at most 8).
 
 #include "FuzzCommon.h"
@@ -100,7 +101,7 @@ extern "C" int LLVMFuzzerTestOneInput (const uint8_t* data, size_t size)
 {
     if (size < 4)
         return 0;
-    const int expected = (int) ((uint32_t) data[0] | (uint32_t) data[1] << 8 | (uint32_t) data[2] << 16 | (uint32_t) data[3] << 24) & 0xfffff;
+    const int expected = (int) ((uint32_t) data[0] | (uint32_t) data[1] << 8 | (uint32_t) data[2] << 16 | (uint32_t) data[3] << 24) & 0x3fff;
     const auto parts = split (data + 4, size - 4);
 
     cacheDir.deleteRecursively();

@@ -15,9 +15,11 @@ const char* const kExtensions[] = { ".wav", ".aiff", ".flac", ".mp3", ".ogg", ".
 constexpr int kNumExtensions = (int) (sizeof (kExtensions) / sizeof (kExtensions[0]));
 const double kHostRates[] = { 48000.0, 44100.0, 96000.0, 22050.0 };
 
-// Above this many frames only the header checks run: decoding and analysing millions of frames per
-// input would make every such input a timeout. (The 20-minute cap itself is a unit test.)
-int maxFramesToDecode = 1 << 18;
+// Above this many frames only the header checks run, and above the second limit only the decode:
+// analysing and resampling long buffers (under ASan) would take most of each run without reaching
+// new code. (The 20-minute cap itself is a unit test.)
+int maxFramesToDecode = 1 << 16;
+int maxFramesToAnalyse = 1 << 14;
 bool verbose = false; // FUZZ_VERBOSE=1: say what happened to each input (for replaying artefacts)
 
 fuzz::Bytes withExtension (int ext, const fuzz::Bytes& file)
@@ -153,7 +155,7 @@ extern "C" int LLVMFuzzerInitialize (int* argc, char*** argv)
     chop::setSampleLibraryFolderForTests (fuzz::workDir().getChildFile ("Music/Flayr Chop/Samples"));
     chop::setStemCacheRootForTests (fuzz::workDir().getChildFile ("stems"));
     if (const char* env = std::getenv ("FUZZ_MAX_FRAMES"))
-        maxFramesToDecode = std::atoi (env);
+        maxFramesToDecode = maxFramesToAnalyse = std::atoi (env);
     verbose = std::getenv ("FUZZ_VERBOSE") != nullptr;
     juce::File seedDir;
     if (fuzz::seedDirFromArgs (*argc, *argv, seedDir))
@@ -197,6 +199,8 @@ extern "C" int LLVMFuzzerTestOneInput (const uint8_t* data, size_t size)
         FUZZ_ASSERT (st == nullptr || st->size() == frames, "readAll gave %d frames, not %d", st ? st->size() : -1, frames);
     }
     reader.reset();
+    if (frames > maxFramesToAnalyse)
+        return 0;
 
     // The whole load, as the processor's worker runs it.
     chop::LoadedSample s;

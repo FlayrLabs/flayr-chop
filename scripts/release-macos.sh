@@ -51,7 +51,8 @@ cmake -S "$SRC" -B "$BUILD" -G Xcode \
     -DFLAYR_CHOP_COPY_AFTER_BUILD=OFF \
     -DFLAYR_CHOP_TEST_HOOKS=OFF \
     -DFLAYR_CHOP_BUILD_TESTS=OFF \
-    -DFLAYR_CHOP_BUILD_TOOLS=OFF >/dev/null
+    -DFLAYR_CHOP_BUILD_TOOLS=OFF \
+    -DFLAYR_CHOP_BUILD_FUZZERS=OFF >/dev/null
 cmake --build "$BUILD" --config Release --target FlayrChop_AU FlayrChop_VST3 -- -quiet
 
 ART="$BUILD/FlayrChop_artefacts/Release"
