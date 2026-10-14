@@ -534,6 +534,9 @@ void FlayrChopProcessor::runJob (std::function<void()> job)
 
 void FlayrChopProcessor::loadFile (const juce::File& file)
 {
+    // A relink while a restored project waits: the project now saves with the new path.
+    if (pendingPadState != nullptr)
+        pendingPadState->setProperty ("path", file.getFullPathName(), nullptr);
     busy = Busy::Loading;
     status = "Loading " + file.getFileName() + "...";
     progress = 0.0f;
@@ -1288,7 +1291,8 @@ void FlayrChopProcessor::getStateInformation (juce::MemoryBlock& destData)
         t.setProperty ("stems", (juce::int64) p.stemMask, nullptr);
         s.appendChild (t, nullptr);
     }
-    root.appendChild (s, nullptr);
+    // A restored project not applied yet (sample missing or still loading) saves as it came in.
+    root.appendChild (pendingPadState != nullptr ? pendingPadState->createCopy() : s, nullptr);
 
     juce::ValueTree ui ("UI");
     ui.setProperty ("selected", selectedPad, nullptr);
