@@ -43,13 +43,25 @@ void setSampleLibraryFolderForTests (const juce::File&); // tests only, before a
 // existing copy if there is one, or an empty File on failure. Slow: worker thread only.
 juce::File libraryCopyOf (const juce::File&);
 
+namespace detail
+{
+// loadSample's first two steps, exposed for tests and fuzzing. openChecked opens a file and applies
+// every header check, returning the one checked frame count that readAll then allocates and reads.
+std::unique_ptr<juce::AudioFormatReader> openChecked (const juce::File&, int& frames, juce::String& error);
+std::shared_ptr<Stereo> readAll (juce::AudioFormatReader&, int frames, const std::function<bool()>& cancelled);
+} // namespace detail
+
 // High-quality sample-rate conversion (windowed sinc).
 StereoPtr resample (const Stereo& in, double fromRate, double toRate);
 
 std::vector<float> monoMix (const Stereo&);
 
+// The playable source: the sample and its stems, all resampled to `rate`.
+SourcePtr buildSource (const LoadedSample&, const std::vector<StereoPtr>& stems, double rate, uint64_t id);
+
 // Stems are cached per file (path + size + date) so a project reopens without separating again.
 juce::File stemCacheFolder (const juce::File& audioFile);
+void setStemCacheRootForTests (const juce::File&); // tests only: keeps the cache out of the user's folders
 bool loadCachedStems (const juce::File& audioFile, int expectedLength, std::vector<StereoPtr>& stems,
                       juce::StringArray& names);
 void saveCachedStems (const juce::File& audioFile, double rate, const std::vector<StereoPtr>& stems,

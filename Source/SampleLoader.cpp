@@ -130,7 +130,9 @@ std::vector<float> monoMix (const Stereo& s)
 // Every reader goes through here. Rate, length and format come only from the reader object that will
 // then be read from (never from a second look at the header, which could disagree with it), and
 // become one checked frame count `frames` that both the allocation and the read loop use.
-static std::unique_ptr<juce::AudioFormatReader> openChecked (const juce::File& file, int& frames, juce::String& error)
+namespace detail
+{
+std::unique_ptr<juce::AudioFormatReader> openChecked (const juce::File& file, int& frames, juce::String& error)
 {
     frames = 0;
     std::unique_ptr<juce::AudioFormatReader> reader (formats().createReaderFor (file));
@@ -198,6 +200,10 @@ static std::shared_ptr<Stereo> readAll (juce::AudioFormatReader& reader, int fra
     return st;
 }
 
+} // namespace detail
+using detail::openChecked;
+using detail::readAll;
+
 bool loadSample (const juce::File& file, LoadedSample& out, juce::String& error, const std::function<bool()>& cancelled)
 {
     int frames = 0;
@@ -241,18 +247,45 @@ StereoPtr resample (const Stereo& in, double fromRate, double toRate)
     return out;
 }
 
+SourcePtr buildSource (const LoadedSample& s, const std::vector<StereoPtr>& stems, double rate, uint64_t id)
+{
+    auto src = std::make_shared<Source>();
+    src->id = id;
+    src->sampleRate = rate;
+    std::vector<StereoPtr> all (stems.size() + 1);
+    all[0] = s.original;
+    std::copy (stems.begin(), stems.end(), all.begin() + 1);
+    std::vector<StereoPtr> out (all.size());
+    parallelFor ((int) all.size(), [&] (int i) { out[(size_t) i] = resample (*all[(size_t) i], s.fileRate, rate); });
+    src->full = out[0];
+    src->stems.assign (out.begin() + 1, out.end());
+    return src;
+}
+
 //==============================================================================
+static juce::File& stemCacheRootOverride()
+{
+    static juce::File f;
+    return f;
+}
+
+void setStemCacheRootForTests (const juce::File& folder)
+{
+    stemCacheRootOverride() = folder;
+}
+
 juce::File stemCacheFolder (const juce::File& audioFile)
 {
     const auto key = audioFile.getFullPathName() + "|" + juce::String (audioFile.getSize()) + "|"
                      + juce::String (audioFile.getLastModificationTime().toMilliseconds());
-    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+    const auto root = stemCacheRootOverride() != juce::File() ? stemCacheRootOverride()
+                                                              : juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
 #if JUCE_MAC
-        .getChildFile ("Application Support")
+                                                                    .getChildFile ("Application Support")
 #endif
-        .getChildFile ("Flayr Chop")
-        .getChildFile ("stems")
-        .getChildFile (juce::String::toHexString (key.hashCode64()));
+                                                                    .getChildFile ("Flayr Chop")
+                                                                    .getChildFile ("stems");
+    return root.getChildFile (juce::String::toHexString (key.hashCode64()));
 }
 
 bool loadCachedStems (const juce::File& audioFile, int expectedLength, std::vector<StereoPtr>& stems,

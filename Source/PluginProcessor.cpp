@@ -13,21 +13,6 @@ const juce::StringArray kTempoModes { "Original", "Host Sync", "Manual" };
 const juce::StringArray kQuantize { "Off", "1/32", "1/16", "1/8", "1/4", "1/2", "1 Bar" };
 const double kQuantizeBeats[] = { 0.0, 0.125, 0.25, 0.5, 1.0, 2.0, 4.0 };
 
-SourcePtr buildSource (const LoadedSample& s, const std::vector<StereoPtr>& stems, double rate, uint64_t id)
-{
-    auto src = std::make_shared<Source>();
-    src->id = id;
-    src->sampleRate = rate;
-    std::vector<StereoPtr> all (stems.size() + 1);
-    all[0] = s.original;
-    std::copy (stems.begin(), stems.end(), all.begin() + 1);
-    std::vector<StereoPtr> out (all.size());
-    parallelFor ((int) all.size(), [&] (int i) { out[(size_t) i] = resample (*all[(size_t) i], s.fileRate, rate); });
-    src->full = out[0];
-    src->stems.assign (out.begin() + 1, out.end());
-    return src;
-}
-
 // Tempo and key again, from the separated parts: drums for the beat, bass and the rest for the key.
 analysis::Result analyseFromStems (const LoadedSample& s, const std::vector<StereoPtr>& stems, const juce::StringArray& names)
 {
