@@ -520,6 +520,41 @@ static void stateXml()
         CHECK (true, "survived the cut-off hex entity");
     }
 
+    // Attributes named "base64:..." are decoded by ValueTree::fromXml into a block sized by a number in
+    // the attribute (gigabytes for a few bytes): refused before parsing, and JUCE's decoder is patched to
+    // refuse sizes the text can't hold (the LV2 wrapper decodes whole states with it).
+    CHECK (stateRefused (blob ("<FlayrChop base64:x=\"2000000000.AAAA\"/>")), "base64 attribute");
+    CHECK (stateRefused (blob ("<FlayrChop>\n<Sample\tbase64:path=\"9.AAAA\"/></FlayrChop>")), "base64 attribute after a tab");
+    CHECK (! stateRefused (blob ("<FlayrChop><Sample path=\"/Music/base64:x.wav\"/></FlayrChop>")), "'base64:' inside a path refused");
+    {
+        juce::MemoryBlock mb;
+        CHECK (! mb.fromBase64Encoding ("2000000000.AAAA") && mb.getSize() == 0, "JUCE's base64 decoder accepted a 2 GB size (%d bytes)",
+               (int) mb.getSize());
+        CHECK (mb.fromBase64Encoding (juce::MemoryBlock ("hello", 5).toBase64Encoding()) && mb.toString() == "hello",
+               "JUCE's base64 decoder broke a real block");
+    }
+
+    // Floods JUCE's parser handles one item at a time, slowly (entities are appended one by one,
+    // attribute names go through a global pool): bounded by count, and the largest accepted state
+    // still parses quickly.
+    {
+        CHECK (stateRefused (blob ("<FlayrChop x=\"" + repeat ("&amp;", 5000) + "\"/>")), "5000 entities");
+        juce::String attrs;
+        for (int i = 0; i < 5000; ++i)
+            attrs << " a" << i << "=\"1\"";
+        CHECK (stateRefused (blob ("<FlayrChop" + attrs + "/>")), "5000 attributes");
+        juce::String big = "<FlayrChop x=\"" + repeat ("&amp;", FlayrChopProcessor::kMaxStateEntities - 10) + "\"";
+        for (int i = 0; i < FlayrChopProcessor::kMaxStateAttributes - 10; ++i)
+            big << " b" << i << "=\"" << repeat ("v", 20) << "\"";
+        big << "/>";
+        const auto mb = blob (big);
+        const auto t0 = juce::Time::getMillisecondCounterHiRes();
+        const bool parsed = ! stateRefused (mb);
+        const auto ms = juce::Time::getMillisecondCounterHiRes() - t0;
+        std::printf ("largest accepted flood: %d bytes, %s in %.0f ms\n", (int) mb.getSize(), parsed ? "parsed" : "refused", ms);
+        CHECK (ms < 5000.0, "the largest accepted state took %.0f ms to parse", ms);
+    }
+
     // Envelope.
     {
         auto mb = blob (ok);
@@ -648,6 +683,21 @@ static void nanState (const juce::File& dir)
     float peak = 0.0f;
     CHECK (playIsFinite (p, peak), "nan state: non-finite output");
     CHECK (peak > 0.01f, "nan state: pad A1 silent (peak %f)", peak);
+
+    // Hosts that hand over fewer channels than the stereo layout (or an empty block): no write past them.
+    for (const int channels : { 0, 1 })
+    {
+        juce::AudioBuffer<float> odd (channels, 256);
+        juce::MidiBuffer midi;
+        midi.addEvent (juce::MidiMessage::noteOn (1, chop::kFirstPadNote, (juce::uint8) 127), 0);
+        p.processBlock (odd, midi);
+        CHECK (true, "survived a %d-channel block", channels);
+    }
+    {
+        juce::AudioBuffer<float> empty (2, 0);
+        juce::MidiBuffer midi;
+        p.processBlock (empty, midi);
+    }
 
     // A host (or automation) pushing NaN straight into a parameter: output stays finite.
     p.apvts.getParameter ("filter")->setValue (std::numeric_limits<float>::quiet_NaN());

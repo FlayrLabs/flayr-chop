@@ -45,6 +45,8 @@ public:
     static constexpr int kMaxStateBytes = 256 * 1024; // a full project with long paths is ~30 KB
     static constexpr int kMaxStateElements = 512;    // a full project is ~100
     static constexpr int kMaxStateDepth = 8;         // a full project is 3
+    static constexpr int kMaxStateEntities = 4096;   // '&': a full project has one per '&', '<', '"' in its paths
+    static constexpr int kMaxStateAttributes = 4096; // '=': a full project has ~1,100
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     static juce::String stemLevelId (int s) { return "stemLevel" + juce::String (s); }
@@ -202,6 +204,7 @@ private:
     std::unique_ptr<juce::ValueTree> pendingPadState; // pads restored with a project, applied after load
 
     // Project state across threads (see getStateInformation).
+    void restoreState (const void* data, int sizeInBytes);
     void applyState (const juce::XmlElement&);
     static juce::ValueTree cleanSampleState (const juce::ValueTree&);
     juce::ValueTree cleanParameterState (const juce::ValueTree&) const;

@@ -186,6 +186,10 @@ void FlayrChopProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
     juce::ScopedNoDenormals noDenormals;
     buffer.clear();
     const int n = buffer.getNumSamples();
+    // Only stereo is offered (isBusesLayoutSupported), but a host can still hand over fewer channels
+    // (or an empty block): render nothing rather than write through a channel that isn't there.
+    if (buffer.getNumChannels() < 2 || n <= 0)
+        return;
 
     double bpm = 0.0, ppq = 0.0;
     bool playing = false, hasPpq = false;
@@ -1529,8 +1533,9 @@ std::unique_ptr<juce::XmlElement> FlayrChopProcessor::parseState (const void* da
         return {};
 
     const auto xmlText = juce::String::fromUTF8 (text, length);
-    int elements = 0;
+    int elements = 0, entities = 0, equals = 0;
     bool atStart = true;
+    juce::juce_wchar previous = 0;
     for (auto p = xmlText.getCharPointer();;)
     {
         const auto c = p.getAndAdvance();
@@ -1544,6 +1549,15 @@ std::unique_ptr<juce::XmlElement> FlayrChopProcessor::parseState (const void* da
             if (next != '/' && next != '?' && ++elements > kMaxStateElements)
                 return {};
         }
+        // JUCE's parser appends entity by entity and interns every attribute name in a global pool,
+        // both slow enough per item that floods of them stall a host: bounded well above any project.
+        if ((c == '&' && ++entities > kMaxStateEntities) || (c == '=' && ++equals > kMaxStateAttributes))
+            return {};
+        // Attributes named "base64:..." are decoded into binary by ValueTree::fromXml, sized by a
+        // number in the attribute itself. This version never writes them.
+        if (c == 'b' && juce::CharacterFunctions::isWhitespace (previous) && p.compareUpTo (juce::CharPointer_ASCII ("ase64:"), 6) == 0)
+            return {};
+        previous = c;
         atStart = false;
     }
 
@@ -1564,6 +1578,21 @@ std::unique_ptr<juce::XmlElement> FlayrChopProcessor::parseState (const void* da
 }
 
 void FlayrChopProcessor::setStateInformation (const void* data, int sizeInBytes)
+{
+    // A host calls this with whatever a project file holds: nothing may escape into the host (an
+    // allocation failing inside JUCE's XML or ValueTree code would otherwise end the host process).
+    try
+    {
+        restoreState (data, sizeInBytes);
+    }
+    catch (...)
+    {
+        if (onMessageThread()) // the status belongs to the message thread
+            status = "This project's Flayr Chop state couldn't be read";
+    }
+}
+
+void FlayrChopProcessor::restoreState (const void* data, int sizeInBytes)
 {
     auto xml = parseState (data, sizeInBytes); // pure: fine on any thread
     if (xml == nullptr)
@@ -1597,7 +1626,14 @@ void FlayrChopProcessor::setStateInformation (const void* data, int sizeInBytes)
                 return;
             pendingState.reset();
         }
-        applyState (*parsed);
+        try
+        {
+            applyState (*parsed);
+        }
+        catch (...) // same as setStateInformation: never into the message loop
+        {
+            status = "This project's Flayr Chop state couldn't be read";
+        }
     });
 }
 

@@ -306,7 +306,7 @@ std::shared_ptr<Stereo> readAll (juce::AudioFormatReader& reader, int frames, co
         tmp.clear();
         if (! reader.read (&tmp, 0, n, pos, true, true))
             return nullptr; // short or failed read
-        if (reader.sampleRate != rate || reader.numChannels != channels)
+        if (! juce::exactlyEqual (reader.sampleRate, rate) || reader.numChannels != channels)
             return nullptr;
         // Float files can hold NaN, infinities or absurd values, and none of that may reach the
         // analysis or the host: anything non-finite becomes silence, the rest is kept within +-16
