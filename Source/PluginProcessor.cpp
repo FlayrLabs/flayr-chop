@@ -1354,11 +1354,71 @@ void FlayrChopProcessor::getStateInformation (juce::MemoryBlock& destData)
         copyXmlToBinary (*xml, destData);
 }
 
+// Project state comes from files anyone can hand out, and JUCE's XmlDocument recurses per element and
+// expands <!DOCTYPE>/<!ENTITY> definitions recursively, so a crafted state could exhaust the stack.
+// The checks run on exactly the characters XmlDocument would read and only ever over-count:
+//  - the envelope as copyXmlToBinary writes it, the declared length (which getXmlFromBinary uses),
+//    no NUL inside it (getXmlFromBinary would stop there) and valid UTF-8;
+//  - every '<' not followed by '/' counts as an element, wherever it is (attribute values, text,
+//    unterminated quotes: nothing changes the count, and nothing ever decrements it), so the total
+//    bounds the nesting XmlDocument can reach no matter how it reads the text;
+//  - no '<!' at all (DTDs, entities, comments, CDATA), and '<?' only as the leading declaration;
+//  - after parsing, the tree's real depth is checked without recursion before ValueTree::fromXml
+//    (which recurses too) sees it.
+std::unique_ptr<juce::XmlElement> FlayrChopProcessor::parseState (const void* data, int sizeInBytes)
+{
+    constexpr juce::uint32 magicXmlNumber = 0x21324356; // AudioProcessor::copyXmlToBinary
+    if (data == nullptr || sizeInBytes <= 8 || sizeInBytes > kMaxStateBytes)
+        return {};
+    const auto* bytes = static_cast<const char*> (data);
+    if (juce::ByteOrder::littleEndianInt (bytes) != magicXmlNumber)
+        return {};
+    const auto declared = (juce::int64) juce::ByteOrder::littleEndianInt (bytes + 4);
+    if (declared <= 0 || declared > sizeInBytes - 8)
+        return {};
+    const int length = (int) declared;
+    const char* text = bytes + 8;
+    if (std::memchr (text, 0, (size_t) length) != nullptr || ! juce::CharPointer_UTF8::isValidString (text, length))
+        return {};
+
+    const auto xmlText = juce::String::fromUTF8 (text, length);
+    int elements = 0;
+    bool atStart = true;
+    for (auto p = xmlText.getCharPointer();;)
+    {
+        const auto c = p.getAndAdvance();
+        if (c == 0)
+            break;
+        if (c == '<')
+        {
+            const auto next = *p;
+            if (next == '!' || (next == '?' && ! atStart))
+                return {};
+            if (next != '/' && next != '?' && ++elements > kMaxStateElements)
+                return {};
+        }
+        atStart = false;
+    }
+
+    auto xml = juce::parseXML (xmlText);
+    if (xml == nullptr)
+        return {};
+    std::vector<std::pair<const juce::XmlElement*, int>> stack { { xml.get(), 1 } };
+    while (! stack.empty())
+    {
+        const auto [e, depth] = stack.back();
+        stack.pop_back();
+        if (depth > kMaxStateDepth)
+            return {};
+        for (const auto* child : e->getChildIterator())
+            stack.push_back ({ child, depth + 1 });
+    }
+    return xml;
+}
+
 void FlayrChopProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
-    if (sizeInBytes <= 0 || sizeInBytes > (1 << 20))
-        return; // far bigger than any real project state
-    const auto xml = getXmlFromBinary (data, sizeInBytes);
+    const auto xml = parseState (data, sizeInBytes);
     if (xml == nullptr)
         return;
     const auto root = juce::ValueTree::fromXml (*xml);

@@ -168,6 +168,159 @@ static void crashFiles (const juce::File& dir)
     }
 }
 
+//==============================================================================
+// State blobs: the copyXmlToBinary envelope around any text, or around raw bytes with any length.
+static juce::MemoryBlock rawBlob (const void* text, size_t bytes, juce::int64 declaredLength = -1)
+{
+    juce::MemoryOutputStream out;
+    out.writeInt (0x21324356);
+    out.writeInt ((int) (declaredLength >= 0 ? declaredLength : (juce::int64) bytes));
+    out.write (text, bytes);
+    out.writeByte (0);
+    return out.getMemoryBlock();
+}
+
+static juce::MemoryBlock blob (const juce::String& xml)
+{
+    return rawBlob (xml.toRawUTF8(), xml.getNumBytesAsUTF8());
+}
+
+static bool stateRefused (const juce::MemoryBlock& mb)
+{
+    return FlayrChopProcessor::parseState (mb.getData(), (int) mb.getSize()) == nullptr;
+}
+
+static juce::String repeat (const juce::String& s, int n)
+{
+    juce::String r;
+    r.preallocateBytes ((size_t) (s.getNumBytesAsUTF8() * (size_t) n + 1));
+    for (int i = 0; i < n; ++i)
+        r << s;
+    return r;
+}
+
+static juce::String nested (int levels) // <a><a>...</a></a>
+{
+    return repeat ("<a>", levels) + repeat ("</a>", levels);
+}
+
+static void stateXml()
+{
+    const juce::String decl ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+    const auto ok = decl + "<FlayrChop version=\"1.2.0\"><Sample path=\"/x.wav\"><Pad index=\"0\" cue=\"1\"/></Sample></FlayrChop>";
+    CHECK (! stateRefused (blob (ok)), "plain state refused");
+    CHECK (! stateRefused (blob ("<FlayrChop/>")), "state without a declaration refused");
+
+    // Entity expansion (a stack overflow in JUCE's XmlDocument) and every other '<!'.
+    CHECK (stateRefused (blob (decl + "<!DOCTYPE a [<!ENTITY a \"&b;\"><!ENTITY b \"&a;\">]><FlayrChop x=\"&a;\"/>")), "DOCTYPE entities");
+    CHECK (stateRefused (blob ("<FlayrChop><!-- hi --></FlayrChop>")), "comment");
+    CHECK (stateRefused (blob ("<FlayrChop><![CDATA[x]]></FlayrChop>")), "CDATA");
+    CHECK (stateRefused (blob ("<FlayrChop/><?pi x?>")), "processing instruction after the start");
+    CHECK (stateRefused (blob (" " + decl + "<FlayrChop/>")), "declaration not at the very start");
+
+    // Nesting: deep, wide, and hidden from parsers that track quotes.
+    CHECK (stateRefused (blob (nested (100000))), "100000 levels");
+    CHECK (stateRefused (blob (nested (9))), "9 levels (depth limit)");
+    CHECK (! stateRefused (blob (nested (8))), "8 levels refused");
+    CHECK (stateRefused (blob ("<r>" + repeat ("<p/>", 600) + "</r>")), "600 elements");
+    CHECK (stateRefused (blob ("<r x=\"" + repeat ("<a>", 600) + "\"/>")), "'<' inside an attribute value is not skipped");
+    CHECK (stateRefused (blob ("<r x=\"" + repeat ("/>", 600) + "\">" + nested (600) + "</r>")), "'/>' inside a value");
+    CHECK (stateRefused (blob ("<r x=\"" + repeat ("</a>", 600) + "\">" + nested (600) + "</r>")), "'</' inside a value");
+    CHECK (stateRefused (blob ("<r x='>\" y=\">" + nested (600) + "</r>")), "'>' and mixed quotes inside values");
+    CHECK (stateRefused (blob ("<r x=\"" + nested (600))), "unterminated quote");
+    CHECK (stateRefused (blob ("<r>" + repeat ("&lt;", 10) + nested (600) + "</r>")), "escaped text then nesting");
+
+    // Bytes JUCE would read differently from a naive scan.
+    {
+        const auto deep = nested (100000);
+        juce::MemoryOutputStream text;
+        text << "<FlayrChop/>";
+        text.writeByte (0); // getXmlFromBinary's String stops at a NUL
+        text << deep;
+        CHECK (stateRefused (rawBlob (text.getData(), text.getDataSize())), "deep nesting after a NUL inside the length");
+    }
+    {
+        // Past the declared length: JUCE never reads it, so neither do we (and the state is fine).
+        const juce::String head ("<FlayrChop/>");
+        const auto all = head + nested (100000);
+        const auto mb = rawBlob (all.toRawUTF8(), all.getNumBytesAsUTF8(), head.getNumBytesAsUTF8());
+        CHECK (mb.getSize() > (size_t) FlayrChopProcessor::kMaxStateBytes || ! stateRefused (mb), "text past the declared length was read");
+        const auto small = head + nested (20);
+        const auto mb2 = rawBlob (small.toRawUTF8(), small.getNumBytesAsUTF8(), head.getNumBytesAsUTF8());
+        CHECK (! stateRefused (mb2), "only the declared length is parsed");
+    }
+    {
+        // Overlong UTF-8 for '<' (C0 BC): refused as invalid, or counted after decoding.
+        juce::MemoryOutputStream text;
+        for (int i = 0; i < 600; ++i)
+            text << "\xc0\xbc" "a>";
+        CHECK (stateRefused (rawBlob (text.getData(), text.getDataSize())), "overlong '<'");
+        juce::MemoryOutputStream bad;
+        bad << "<FlayrChop x=\"\xff\xfe\"/>";
+        CHECK (stateRefused (rawBlob (bad.getData(), bad.getDataSize())), "invalid UTF-8");
+    }
+    {
+        // UTF-16 (with and without a BOM) has NULs; a UTF-8 BOM must not hide a declaration.
+        const auto u16 = juce::String ("<FlayrChop/>");
+        juce::MemoryOutputStream le, bom;
+        bom.writeByte ((char) 0xff);
+        bom.writeByte ((char) 0xfe);
+        for (auto p = u16.getCharPointer(); ! p.isEmpty(); ++p)
+        {
+            le.writeShort ((short) *p);
+            bom.writeShort ((short) *p);
+        }
+        CHECK (stateRefused (rawBlob (le.getData(), le.getDataSize())), "UTF-16LE");
+        CHECK (stateRefused (rawBlob (bom.getData(), bom.getDataSize())), "UTF-16 with BOM");
+        CHECK (stateRefused (blob (juce::String::fromUTF8 ("\xef\xbb\xbf") + decl + nested (600))), "UTF-8 BOM + declaration + nesting");
+        FlayrChopProcessor::parseState (blob (juce::String::fromUTF8 ("\xef\xbb\xbf") + "<FlayrChop/>").getData(), 30); // must not crash
+    }
+
+    // Envelope.
+    {
+        auto mb = blob (ok);
+        CHECK (FlayrChopProcessor::parseState (mb.getData(), 8) == nullptr, "8-byte blob");
+        static_cast<char*> (mb.getData())[0] ^= 1;
+        CHECK (stateRefused (mb), "bad magic");
+        CHECK (stateRefused (rawBlob (ok.toRawUTF8(), ok.getNumBytesAsUTF8(), 1 << 30)), "declared length beyond the blob");
+        CHECK (stateRefused (rawBlob (ok.toRawUTF8(), ok.getNumBytesAsUTF8(), 0)), "zero length");
+        const auto big = "<FlayrChop x=\"" + juce::String::repeatedString ("a", FlayrChopProcessor::kMaxStateBytes) + "\"/>";
+        CHECK (stateRefused (blob (big)), "oversize state");
+    }
+
+    // A real, full project (every pad, every parameter, long paths) fits with lots of headroom.
+    {
+        const auto longDir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile (repeat ("long folder name ", 40).trim());
+        FlayrChopProcessor p;
+        juce::ValueTree root ("FlayrChop");
+        juce::ValueTree s ("Sample");
+        s.setProperty ("path", longDir.getChildFile ("song.wav").getFullPathName(), nullptr);
+        s.setProperty ("libraryPath", longDir.getChildFile ("library.wav").getFullPathName(), nullptr);
+        for (int i = 0; i < chop::kNumPads; ++i)
+        {
+            juce::ValueTree t ("Pad");
+            for (auto* name : { "index", "cue", "end", "gain", "pan", "keyShift", "stretch", "filter", "favorite", "attack", "release",
+                                "mode", "reverse", "choke", "stems" })
+                t.setProperty (name, juce::String (i) + ".123456789012", nullptr);
+            s.appendChild (t, nullptr);
+        }
+        root.appendChild (p.apvts.copyState(), nullptr);
+        root.appendChild (s, nullptr);
+        juce::MemoryBlock mb;
+        juce::AudioProcessor::copyXmlToBinary (*root.createXml(), mb);
+        std::printf ("full project state: %d bytes (limit %d)\n", (int) mb.getSize(), FlayrChopProcessor::kMaxStateBytes);
+        CHECK ((int) mb.getSize() * 4 < FlayrChopProcessor::kMaxStateBytes, "full state %d bytes is too close to the limit", (int) mb.getSize());
+        CHECK (! stateRefused (mb), "full project state refused");
+
+        // And a refused blob changes nothing.
+        const auto before = p.getStatus();
+        const auto evil = blob (decl + "<!DOCTYPE a [<!ENTITY a \"&a;&a;\">]><FlayrChop><Sample path=\"/evil.wav\" x=\"&a;\"/></FlayrChop>");
+        p.setStateInformation (evil.getData(), (int) evil.getSize());
+        p.setStateInformation (blob (nested (100000)).getData(), (int) blob (nested (100000)).getSize());
+        CHECK (! p.isFileMissing() && p.getStatus() == before, "refused state was applied");
+    }
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI gui;
@@ -175,6 +328,7 @@ int main()
     dir.createDirectory();
 
     crashFiles (dir);
+    stateXml();
 
     dir.deleteRecursively();
     std::printf ("hardening_test: %d checks, %d failures\n", checks, failures);

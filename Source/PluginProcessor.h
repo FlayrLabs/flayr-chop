@@ -39,6 +39,13 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
+    // A saved state as XML, or nullptr if it breaks any limit untrusted project data must keep to
+    // (size, nesting, no DTDs). Pure; safe on any thread.
+    static std::unique_ptr<juce::XmlElement> parseState (const void* data, int sizeInBytes);
+    static constexpr int kMaxStateBytes = 256 * 1024; // a full project with long paths is ~30 KB
+    static constexpr int kMaxStateElements = 512;    // a full project is ~100
+    static constexpr int kMaxStateDepth = 8;         // a full project is 3
+
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     static juce::String stemLevelId (int s) { return "stemLevel" + juce::String (s); }
     static juce::String stemMuteId (int s) { return "stemMute" + juce::String (s); }
