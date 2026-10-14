@@ -331,7 +331,10 @@ juce::File libraryCopyOf (const juce::File& original, const std::function<bool()
                 copied = false;
         }
         if (out != nullptr)
-            copied = copied && out->flush().wasOk();
+        {
+            out->flush();
+            copied = copied && out->getStatus().wasOk();
+        }
     }
 #endif
     if (! copied || ! isPlainFile (tmp) || tmp.getSize() != src.getSize() || ! tmp.moveFileTo (dest) || ! isPlainFile (dest))
