@@ -888,8 +888,8 @@ static void nanState (const juce::File& dir)
             midi.addEvent (juce::MidiMessage (on, 3), 0);
             midi.addEvent (juce::MidiMessage (off, 3), 1);
         }
-        CHECK (juce::MidiMessage ((const juce::uint8[]) { 0x90, 255, 100 }, 3).getNoteNumber() == 255,
-               "raw note-on keeps note 255 (the case this guards)");
+        const juce::uint8 highNote[] { 0x90, 255, 100 };
+        CHECK (juce::MidiMessage (highNote, 3).getNoteNumber() == 255, "raw note-on keeps note 255 (the case this guards)");
         p.processBlock (buf, midi);
         float rawPeak = 0.0f;
         CHECK (playIsFinite (p, rawPeak) && rawPeak > 0.01f, "notes 128-255 ignored; pad A1 still plays (peak %f)", rawPeak);
