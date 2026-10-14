@@ -20,6 +20,8 @@ include(FetchContent)
 FetchContent_Declare(JUCE
     GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
     GIT_TAG 91ad83ae34a81e0833b1a2b0866f54846370ae53 # 8.0.15
+    # Security fixes to JUCE's own sources (an out-of-bounds write in its MP3 decoder); see the script.
+    PATCH_COMMAND ${CMAKE_COMMAND} -DJUCE_DIR=<SOURCE_DIR> -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/PatchJuce.cmake
 )
 # HQ Stretch engine (MIT), and the linear-algebra library it uses, declared here first so the
 # version stretch would fetch by tag is pinned by commit too (stretch 1.4.0 asks for 0.6.4).
@@ -32,6 +34,16 @@ FetchContent_Declare(signalsmith-stretch
     GIT_TAG a670068d9aeb64913331d5cc29337b19a457a7df # 1.4.0
 )
 FetchContent_MakeAvailable(JUCE signalsmith-linear signalsmith-stretch)
+
+# A JUCE checkout given with FETCHCONTENT_SOURCE_DIR_JUCE skips the patch step: refuse to build the
+# plug-in with an unpatched decoder (run cmake/PatchJuce.cmake on that checkout first).
+file(READ "${juce_SOURCE_DIR}/modules/juce_audio_formats/codecs/juce_MP3AudioFormat.cpp" _flayr_chop_mp3)
+string(FIND "${_flayr_chop_mp3}" "Flayr Chop: maxBandl" _flayr_chop_mp3_patched)
+if(_flayr_chop_mp3_patched EQUAL -1)
+    message(FATAL_ERROR "JUCE at ${juce_SOURCE_DIR} lacks Flayr Chop's security patches. Run:\n"
+        "  cmake -DJUCE_DIR=${juce_SOURCE_DIR} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/PatchJuce.cmake")
+endif()
+unset(_flayr_chop_mp3)
 
 # Third-party headers: keep their warnings out of ours.
 foreach(lib signalsmith-stretch signalsmith-linear)

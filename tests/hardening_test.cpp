@@ -265,6 +265,25 @@ static void crashFiles (const juce::File& dir)
         CHECK (refused (renamed, error), "a WAV named .flac was opened by a non-FLAC reader");
     }
 
+    // Found by fuzzing: a 21-byte MP3 frame using intensity stereo with data up to band 21 made JUCE's
+    // MP3 decoder write past its sample buffer (cmake/PatchJuce.cmake fixes it in the fetched JUCE).
+    // JUCE's decoder directly, since macOS tries Core Audio first: run it under ASan/UBSan to see the
+    // write; here it must at least decode without crashing.
+    {
+        juce::MP3AudioFormat mp3;
+        std::unique_ptr<juce::AudioFormatReader> reader (
+            mp3.createReaderFor (new juce::FileInputStream (fixtures.getChildFile ("mp3-intensity-stereo.mp3")), true));
+        if (reader != nullptr && reader->lengthInSamples > 0 && reader->lengthInSamples < 1 << 20)
+        {
+            juce::AudioBuffer<float> buf ((int) juce::jmax (1u, reader->numChannels), (int) reader->lengthInSamples);
+            reader->read (&buf, 0, buf.getNumSamples(), 0, true, true);
+        }
+        juce::String why;
+        chop::LoadedSample s;
+        chop::loadSample (fixtures.getChildFile ("mp3-intensity-stereo.mp3"), s, why);
+        CHECK (true, "survived the intensity-stereo MP3");
+    }
+
     // Longer than 20 minutes at a sane rate (header only; the length check comes before any read).
     CHECK (refused (rf64Wav (dir.getChildFile ("long.wav"), 8000, 8000ULL * 8 * 1300, 64), error), "21-minute file not refused");
 
