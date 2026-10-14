@@ -26,31 +26,54 @@ for var in $(env | grep -oE '^(FETCHCONTENT|CMAKE)_[A-Za-z0-9_]*' || true) CC CX
 done
 CMAKE_BIN="$(command -v cmake)"
 
-# Only ever sign exactly what a release tag holds: a clean checkout sitting on a v* tag, rebuilt
-# from a fresh clone of that tag (so no local edit, untracked file or stale build directory can end
-# up signed with the Flayr Labs identity).
-if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
-    echo "error: the working tree has changes or untracked files; commit or clean them first" >&2
-    exit 1
-fi
-TAG="$(git -C "$ROOT" describe --tags --exact-match --match 'v*' HEAD 2>/dev/null || true)"
-if [[ -z "$TAG" ]]; then
-    echo "error: HEAD is not exactly at a v* release tag" >&2
-    exit 1
-fi
-TAG_COMMIT="$(git -C "$ROOT" rev-parse "$TAG^{commit}")"
-VERSION="${TAG#v}"
-if [[ "$(sed -n 's/^project(FlayrChop VERSION \([0-9.]*\).*/\1/p' "$ROOT/CMakeLists.txt")" != "$VERSION" ]]; then
-    echo "error: CMakeLists.txt version does not match tag $TAG" >&2
-    exit 1
-fi
-
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
+mkdir -p "$WORK/home"
+REPO_URL="https://github.com/FlayrLabs/flayr-chop.git"
+
+# Every git command runs sealed: no environment (GIT_TEMPLATE_DIR, GIT_DIR, ...), no system or
+# global config (hooks, filters, insteadOf, templates), and hooks and fsmonitor off even if the
+# repository's own config asks for them. Only plumbing that reads objects is run on the local
+# repository: nothing here checks out, so no smudge/clean filter or hook ever runs.
+git_sealed() {
+    env -i "HOME=$WORK/home" "PATH=/usr/bin:/bin" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 \
+        /usr/bin/git -c core.hooksPath=/dev/null -c core.fsmonitor=false -c core.autocrlf=false "$@"
+}
+
+# Only ever sign exactly what a release tag holds: the commit HEAD's v* tag names, the same commit
+# the tag names on GitHub, exported from the object database (no working tree, local edit or
+# untracked file can reach the build) and checked against the tag's tree.
+TAG="$(git_sealed -C "$ROOT" describe --tags --exact-match --match 'v*' HEAD 2>/dev/null || true)"
+if [[ -z "$TAG" || ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "error: HEAD is not exactly at a vX.Y.Z release tag" >&2
+    exit 1
+fi
+TAG_COMMIT="$(git_sealed -C "$ROOT" rev-parse --verify "$TAG^{commit}")"
+TAG_TREE="$(git_sealed -C "$ROOT" rev-parse --verify "$TAG^{tree}")"
+REMOTE_COMMIT="$(git_sealed ls-remote "$REPO_URL" "refs/tags/$TAG^{}" "refs/tags/$TAG" | awk -v t="refs/tags/$TAG" '$2 == t "^{}" { peeled = $1 } $2 == t { plain = $1 } END { print (peeled != "" ? peeled : plain) }')"
+if [[ "$REMOTE_COMMIT" != "$TAG_COMMIT" ]]; then
+    echo "error: $TAG is $TAG_COMMIT here but '${REMOTE_COMMIT:-missing}' on $REPO_URL" >&2
+    exit 1
+fi
+VERSION="${TAG#v}"
+
 SRC="$WORK/src"
-git clone --quiet --no-local --branch "$TAG" "$ROOT" "$SRC"
-if [[ "$(git -C "$SRC" rev-parse HEAD)" != "$TAG_COMMIT" ]]; then
-    echo "error: the fresh clone is not at $TAG ($TAG_COMMIT)" >&2
+mkdir -p "$SRC"
+git_sealed -C "$ROOT" archive --format=tar "$TAG_COMMIT" | tar -x -C "$SRC" -f -
+# The exported files must be exactly the tag's tree (index and objects in a scratch repository).
+EXPORTED_TREE="$(GIT_DIR="$WORK/verify.git" GIT_WORK_TREE="$SRC" bash -c '
+    env -i "HOME=$0" "PATH=/usr/bin:/bin" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "GIT_DIR=$1" "GIT_WORK_TREE=$2" \
+        /usr/bin/git -c core.hooksPath=/dev/null -c core.autocrlf=false init -q &&
+    env -i "HOME=$0" "PATH=/usr/bin:/bin" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "GIT_DIR=$1" "GIT_WORK_TREE=$2" \
+        /usr/bin/git -c core.hooksPath=/dev/null -c core.autocrlf=false add -A -f &&
+    env -i "HOME=$0" "PATH=/usr/bin:/bin" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "GIT_DIR=$1" "GIT_WORK_TREE=$2" \
+        /usr/bin/git -c core.hooksPath=/dev/null write-tree' "$WORK/home" "$WORK/verify.git" "$SRC")"
+if [[ "$EXPORTED_TREE" != "$TAG_TREE" ]]; then
+    echo "error: the exported sources ($EXPORTED_TREE) are not $TAG's tree ($TAG_TREE)" >&2
+    exit 1
+fi
+if [[ "$(sed -n 's/^project(FlayrChop VERSION \([0-9.]*\).*/\1/p' "$SRC/CMakeLists.txt")" != "$VERSION" ]]; then
+    echo "error: CMakeLists.txt version does not match tag $TAG" >&2
     exit 1
 fi
 
@@ -58,9 +81,9 @@ BUILD="$WORK/build"
 DIST="$ROOT/dist"
 DMG="$DIST/FlayrChop-$VERSION-macOS.dmg"
 
-echo "==> Building Flayr Chop $VERSION (universal) from a fresh clone of $TAG"
-mkdir -p "$WORK/home"
-clean_env=(env -i "HOME=$WORK/home" "PATH=$(dirname "$CMAKE_BIN"):/usr/bin:/bin:/usr/sbin:/sbin" "TMPDIR=$WORK")
+echo "==> Building Flayr Chop $VERSION (universal) from the sources of $TAG"
+clean_env=(env -i "HOME=$WORK/home" "PATH=$(dirname "$CMAKE_BIN"):/usr/bin:/bin:/usr/sbin:/sbin" "TMPDIR=$WORK"
+           GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0) # FetchContent runs git too
 "${clean_env[@]}" "$CMAKE_BIN" -S "$SRC" -B "$BUILD" -G Xcode \
     -DFLAYR_CHOP_COPY_AFTER_BUILD=OFF \
     -DFLAYR_CHOP_TEST_HOOKS=OFF \
