@@ -263,6 +263,27 @@ static void crashFiles (const juce::File& dir)
         const auto renamed = dir.getChildFile ("wav-named.flac");
         renamed.replaceWithData (wavBytes.getData(), wavBytes.getSize());
         CHECK (refused (renamed, error), "a WAV named .flac was opened by a non-FLAC reader");
+
+        // Core Audio also sniffs content: the same comment-block bug, as FLAC data named .aiff. FLAC
+        // data under any name goes to libFLAC (which refuses this one, and reads a real one).
+        CHECK (refused (fixtures.getChildFile ("flac-renamed.aiff"), error), "FLAC data named .aiff reached another reader");
+        juce::AudioBuffer<float> tone (2, 4410);
+        for (int c = 0; c < 2; ++c)
+            for (int i = 0; i < tone.getNumSamples(); ++i)
+                tone.setSample (c, i, 0.3f * std::sin ((float) i * 0.05f));
+        const auto realFlac = dir.getChildFile ("real.flac");
+        {
+            juce::FlacAudioFormat flac;
+            std::unique_ptr<juce::OutputStream> stream = std::make_unique<juce::FileOutputStream> (realFlac);
+            auto w = flac.createWriterFor (stream, juce::AudioFormatWriterOptions {}.withSampleRate (44100.0).withNumChannels (2).withBitsPerSample (16));
+            if (w != nullptr)
+                w->writeFromAudioSampleBuffer (tone, 0, tone.getNumSamples());
+        }
+        const auto flacAsWav = dir.getChildFile ("flac-named.wav");
+        realFlac.copyFileTo (flacAsWav);
+        chop::LoadedSample s;
+        CHECK (chop::loadSample (flacAsWav, s, error) && s.original != nullptr && s.original->size() == tone.getNumSamples(),
+               "a real FLAC named .wav didn't load through libFLAC: %s", error.toRawUTF8());
     }
 
     // Found by fuzzing: a 21-byte MP3 frame using intensity stereo with data up to band 21 made JUCE's

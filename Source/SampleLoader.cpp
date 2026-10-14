@@ -31,18 +31,40 @@ static_assert (kMaxFrames <= std::numeric_limits<int>::max(), "frame counts are 
 constexpr juce::int64 kMaxFramesPerCompressedByte = 16384;
 constexpr float kMaxSampleValue = 16.0f;
 
+// True if the file holds a FLAC stream, whatever its name: "fLaC" at the start, or after an ID3v2 tag.
+bool hasFlacContent (const juce::File& file)
+{
+    juce::FileInputStream in (file);
+    if (! in.openedOk())
+        return false;
+    uint8_t head[10] = {};
+    if (in.read (head, 10) != 10)
+        return false;
+    if (std::memcmp (head, "ID3", 3) == 0)
+    {
+        // Tag size: 4 x 7 bits, plus the 10-byte header (and a 10-byte footer when flagged).
+        const auto size = (juce::int64) ((head[6] & 0x7f) << 21 | (head[7] & 0x7f) << 14 | (head[8] & 0x7f) << 7 | (head[9] & 0x7f));
+        if (! in.setPosition (10 + size + ((head[5] & 0x10) != 0 ? 10 : 0)) || in.read (head, 4) != 4)
+            return false;
+    }
+    return std::memcmp (head, "fLaC", 4) == 0;
+}
+
 // Like AudioFormatManager::createReaderFor (every format that claims the file's extension, in
-// registration order), except that a FLAC file JUCE's own FLAC decoder refuses is not handed on to
-// the operating system's decoder. libFLAC covers the format completely, so that fallback only ever
-// ran Core Audio's parser on damaged files, and fuzzing found a FLAC comment block that made it ask
-// for 64 GB. Other formats still fall back: Core Audio reads WAV/AIFF variants (IMA ADPCM, u-law)
-// and Ogg codecs that JUCE's readers don't.
+// registration order), except that FLAC is only ever read by libFLAC: a .flac, or a FLAC stream under
+// any other name (which libFLAC then reads instead), is never handed to the operating system's
+// decoder. libFLAC covers the format completely, so Core Audio only ever saw FLAC data libFLAC had
+// refused, and fuzzing found FLAC comment blocks that made Core Audio's parser ask for 27 to 64 GB
+// (named .flac, and renamed .wav). Other formats still fall back: Core Audio reads WAV/AIFF variants
+// (IMA ADPCM, u-law) and Ogg codecs that JUCE's readers don't.
 std::unique_ptr<juce::AudioFormatReader> createReader (const juce::File& file)
 {
-    const bool flacOnly = file.hasFileExtension ("flac");
+    const bool flacContent = hasFlacContent (file);
+    const bool flacOnly = flacContent || file.hasFileExtension ("flac");
     for (auto* format : formats())
     {
-        if (! format->canHandleFile (file) || (flacOnly && dynamic_cast<juce::FlacAudioFormat*> (format) == nullptr))
+        const bool isFlac = dynamic_cast<juce::FlacAudioFormat*> (format) != nullptr;
+        if (flacOnly ? ! isFlac : ! format->canHandleFile (file))
             continue;
         if (auto in = file.createInputStream())
             if (auto* reader = format->createReaderFor (in.release(), true))
