@@ -504,12 +504,19 @@ void testWithModel(const std::string& model)
 
 int main()
 {
+    // Unbuffered, so a CI log that ends in a crash still shows the last section reached.
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+    std::setvbuf(stderr, nullptr, _IONBF, 0);
     const auto tmp = std::filesystem::temp_directory_path() / "flayr_chop_stems_test";
     std::filesystem::create_directories(tmp);
 
+    std::printf("-- testResampler\n");
     testResampler();
+    std::printf("-- testHelpers\n");
     testHelpers(tmp);
+    std::printf("-- testModelIntegrity\n");
     testModelIntegrity(tmp);
+    std::printf("-- testEngineApi\n");
     testEngineApi();
 
     std::string model = chop::stems::defaultModelPath();
@@ -517,7 +524,9 @@ int main()
         model = env;
     if (chop::stems::modelAvailable(model)) {
         std::printf("model: %s\n", model.c_str());
+        std::printf("-- testRealModelIntegrity\n");
         testRealModelIntegrity(model, tmp);
+        std::printf("-- testWithModel\n");
         testWithModel(model);
     } else {
         std::printf("SKIP  model-dependent checks (no model at %s; run scripts/fetch-model.sh)\n", model.c_str());

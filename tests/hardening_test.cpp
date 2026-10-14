@@ -714,17 +714,28 @@ static void legacyState (const juce::File& dir)
 
 int main()
 {
+    // Unbuffered, so a CI log that ends in a crash still shows the last section reached.
+    std::setvbuf (stdout, nullptr, _IONBF, 0);
+    std::setvbuf (stderr, nullptr, _IONBF, 0);
     juce::ScopedJuceInitialiser_GUI gui;
     const auto dir = juce::File::createTempFile ("flayr-chop-hardening");
     dir.createDirectory();
     chop::setSampleLibraryFolderForTests (dir.getChildFile ("Music/Flayr Chop/Samples")); // never the real one
+    chop::setStemCacheRootForTests (dir.getChildFile ("stems")); // nor the real stem cache
 
+    std::printf ("-- crashFiles\n");
     crashFiles (dir);
+    std::printf ("-- stateXml\n");
     stateXml();
+    std::printf ("-- nanState\n");
     nanState (dir);
+    std::printf ("-- threadedState\n");
     threadedState (dir);
+    std::printf ("-- networkPaths\n");
     networkPaths();
+    std::printf ("-- libraryCopies\n");
     libraryCopies (dir);
+    std::printf ("-- legacyState\n");
     legacyState (dir);
 
     dir.deleteRecursively();

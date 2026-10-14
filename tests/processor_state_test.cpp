@@ -25,6 +25,22 @@ static void pump (double seconds)
         juce::MessageManager::getInstance()->runDispatchLoopUntil (5);
 }
 
+// Until the worker and the message loop are done (a restore always goes through the worker, and its
+// result arrives on the next timer tick: a fixed short pump is a race on a slow CI machine).
+static bool waitIdle (FlayrChopProcessor& p)
+{
+    const auto t0 = juce::Time::getMillisecondCounterHiRes();
+    pump (0.05);
+    while (p.getBusy() != FlayrChopProcessor::Busy::None)
+    {
+        if (juce::Time::getMillisecondCounterHiRes() - t0 > 60000)
+            return false;
+        pump (0.02);
+    }
+    pump (0.05);
+    return true;
+}
+
 static bool waitLoaded (FlayrChopProcessor& p)
 {
     const auto t0 = juce::Time::getMillisecondCounterHiRes();
@@ -122,10 +138,14 @@ static void reopen (FlayrChopProcessor& from, FlayrChopProcessor& to)
 
 int main()
 {
+    // Unbuffered, so a CI log that ends in a crash still shows the last section reached.
+    std::setvbuf (stdout, nullptr, _IONBF, 0);
+    std::setvbuf (stderr, nullptr, _IONBF, 0);
     juce::ScopedJuceInitialiser_GUI gui;
     const auto dir = juce::File::createTempFile ("flayr-chop-state");
     dir.createDirectory();
     chop::setSampleLibraryFolderForTests (dir.getChildFile ("Music/Flayr Chop/Samples")); // never the real one
+    chop::setStemCacheRootForTests (dir.getChildFile ("stems")); // nor the real stem cache
     const auto wav = writeWav (dir.getChildFile ("loop.wav"), 5.0);
     const auto relinked = writeWav (dir.getChildFile ("moved.wav"), 5.0);
     const auto missing = dir.getChildFile ("gone/loop.wav");
@@ -135,12 +155,12 @@ int main()
         FlayrChopProcessor a;
         const auto st = projectState (missing);
         a.setStateInformation (st.getData(), (int) st.getSize());
-        pump (0.1);
+        CHECK (waitIdle (a), "missing: still busy");
         CHECK (a.isFileMissing(), "missing: file should be reported missing");
         expectProject (sampleOf (a), missing, "missing save");
         FlayrChopProcessor b;
         reopen (a, b);
-        pump (0.1);
+        CHECK (waitIdle (b), "missing reopen: still busy");
         expectProject (sampleOf (b), missing, "missing reopen");
     }
     {
@@ -162,7 +182,7 @@ int main()
         FlayrChopProcessor a;
         const auto st = projectState (missing);
         a.setStateInformation (st.getData(), (int) st.getSize());
-        pump (0.1);
+        CHECK (waitIdle (a) && a.isFileMissing(), "relink: not reported missing first");
         a.loadFile (relinked);
         expectProject (sampleOf (a), relinked, "relink before load");
         CHECK (waitLoaded (a), "relink: never loaded");
