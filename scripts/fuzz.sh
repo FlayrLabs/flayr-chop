@@ -34,6 +34,7 @@ for t in "${TARGETS[@]}"; do
         echo "fuzz_$t not found under $BUILD" >&2
         exit 2
     fi
+    bin="$(cd "$(dirname "$bin")" && pwd)/$(basename "$bin")" # each target runs from its own folder
     case "$t" in
         sample_load)   dict=audio.dict; maxlen=65536 ;;
         state_restore) dict=state.dict; maxlen=32768 ;;
