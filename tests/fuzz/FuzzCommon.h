@@ -42,6 +42,21 @@ inline void initJuce()
     (void) gui;
 }
 
+// Runs fn on a thread with a 512 KB stack, the default for secondary threads on macOS (so what a
+// host's thread or a plain std::thread may have): stack exhaustion shows up here as a crash instead
+// of passing on the main thread's 8 MB.
+inline void runOnSmallStack (std::function<void()> fn)
+{
+    struct Small final : juce::Thread
+    {
+        explicit Small (std::function<void()> f) : juce::Thread ("fuzz 512 KB stack", 512 * 1024), body (std::move (f)) {}
+        void run() override { body(); }
+        std::function<void()> body;
+    } t (std::move (fn));
+    t.startThread();
+    t.waitForThreadToExit (-1);
+}
+
 inline juce::File& workDir()
 {
     static juce::File d;

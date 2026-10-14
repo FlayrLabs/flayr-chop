@@ -111,6 +111,26 @@ std::vector<fuzz::Bytes> makeSeeds()
                                                         { "MidiUnityNote", "60" }, { "NumSampleLoops", "1" },
                                                         { "Loop0Start", "10" }, { "Loop0End", "1000" } })));
     seeds.push_back (withExtension (0, rf64 (2, 800, 16000.0)));
+    {
+        // XML metadata chunks (iXML, axml), nested a little: the reader must never recurse on them.
+        auto w = fuzz::encode (wav, mono, 8000.0, 16);
+        for (auto* tag : { "iXML", "axml" })
+        {
+            fuzz::Bytes b (w.begin(), w.begin() + 12);
+            juce::String xml;
+            for (int i = 0; i < 40; ++i)
+                xml << "<BWFXML>";
+            const auto len = (uint32_t) xml.getNumBytesAsUTF8();
+            b.insert (b.end(), tag, tag + 4);
+            for (int i = 0; i < 4; ++i)
+                b.push_back ((uint8_t) (len >> (8 * i)));
+            b.insert (b.end(), xml.toRawUTF8(), xml.toRawUTF8() + len);
+            if (len & 1)
+                b.push_back (0);
+            b.insert (b.end(), w.begin() + 12, w.end());
+            seeds.push_back (withExtension (0, b));
+        }
+    }
     seeds.push_back (withExtension (1, fuzz::encode (aiff, stereo, 22050.0, 16)));
     seeds.push_back (withExtension (1, fuzz::encode (aiff, mono, 8000.0, 24)));
     seeds.push_back (withExtension (7, fuzz::encode (aiff, mono, 8000.0, 8, { { "MidiUnityNote", "60" }, { "Loop0Start", "1" },
@@ -166,7 +186,16 @@ extern "C" int LLVMFuzzerInitialize (int* argc, char*** argv)
     return 0;
 }
 
+static int testOneInput (const uint8_t* data, size_t size);
+
+// Everything below runs on a 512 KB stack, like the plug-in's loads did on macOS.
 extern "C" int LLVMFuzzerTestOneInput (const uint8_t* data, size_t size)
+{
+    fuzz::runOnSmallStack ([&] { testOneInput (data, size); });
+    return 0;
+}
+
+static int testOneInput (const uint8_t* data, size_t size)
 {
     if (size < 1)
         return 0;

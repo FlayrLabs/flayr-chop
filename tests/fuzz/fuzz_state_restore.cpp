@@ -193,7 +193,7 @@ extern "C" int LLVMFuzzerTestOneInput (const uint8_t* data, size_t size)
 
     auto p = std::make_unique<FlayrChopProcessor>();
     if ((flags & 2) != 0)
-        std::thread ([&] { p->setStateInformation (blob.getData(), (int) blob.getSize()); }).join();
+        fuzz::runOnSmallStack ([&] { p->setStateInformation (blob.getData(), (int) blob.getSize()); }); // a host thread
     else
         p->setStateInformation (blob.getData(), (int) blob.getSize());
     pumpUntilIdle (*p, 10.0);

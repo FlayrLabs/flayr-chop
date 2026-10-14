@@ -97,7 +97,16 @@ extern "C" int LLVMFuzzerInitialize (int* argc, char*** argv)
     return 0;
 }
 
+static int testOneInput (const uint8_t* data, size_t size);
+
+// On a 512 KB stack, like the plug-in's worker had on macOS.
 extern "C" int LLVMFuzzerTestOneInput (const uint8_t* data, size_t size)
+{
+    fuzz::runOnSmallStack ([&] { testOneInput (data, size); });
+    return 0;
+}
+
+static int testOneInput (const uint8_t* data, size_t size)
 {
     if (size < 4)
         return 0;

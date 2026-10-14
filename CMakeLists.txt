@@ -50,7 +50,10 @@ foreach(_patch "codecs/juce_MP3AudioFormat.cpp|Flayr Chop: maxBandl"
                "codecs/juce_AiffAudioFormat.cpp|Flayr Chop: cate tag at the end"
                "../juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp|Flayr Chop: private data size"
                "../juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp|Flayr Chop: private data parse"
-               "../juce_core/memory/juce_MemoryBlock.cpp|Flayr Chop: base64 size")
+               "../juce_core/memory/juce_MemoryBlock.cpp|FLAYR_PATCH juce-base64-declared-size"
+               "../juce_core/xml/juce_XmlDocument.cpp|Flayr Chop: XML depth limit"
+               "../juce_core/xml/juce_XmlDocument.cpp|Flayr Chop: entity depth limit"
+               "codecs/juce_WavAudioFormat.cpp|Flayr Chop: no iXML/axml parsing")
     string(REPLACE "|" ";" _patch "${_patch}")
     list(GET _patch 0 _file)
     list(GET _patch 1 _marker)

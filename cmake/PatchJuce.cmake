@@ -35,9 +35,18 @@
 #    stores there (Bypass).
 #
 # 7. MemoryBlock::fromBase64Encoding: the decimal size before the '.' came from the text and was
-#    allocated (zeroed) as given, up to 2 GB for a few bytes; ValueTree::fromXml decodes attributes
-#    named "base64:..." with it, and the LV2 wrapper decodes the whole saved state with it. The size
-#    may now be no more than the encoded characters can hold.
+#    allocated (zeroed) as given, up to 2 GB for a few bytes, and getIntValue overflowed on long digit
+#    strings; ValueTree::fromXml decodes attributes named "base64:..." with it, and the LV2 wrapper
+#    decodes the whole saved state with it. Plain digits only, at most INT_MAX, and no more than the
+#    encoded characters can hold: the same change as Flayr Tune's juce-base64-declared-size.patch.
+#
+# 8. XML nesting (XmlDocument::readNextElement and entity expansion): the parser recursed once per
+#    level with no limit, so 2,000 nested elements in a 16 KB WAV's iXML chunk overflowed the 512 KB
+#    stack of the thread that loads samples (found by an independent review). Parsing now fails past
+#    64 levels, for every parseXML caller.
+#
+# 9. WAV reader: the iXML and axml chunks (free-form XML metadata Flayr Chop never uses) are no
+#    longer parsed at all, so an audio file never feeds JUCE's XML parser.
 
 if(NOT JUCE_DIR)
     message(FATAL_ERROR "PatchJuce.cmake: pass -DJUCE_DIR=<JUCE source dir>")
@@ -204,25 +213,113 @@ flayr_chop_patch("modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3
                 setBypassed (bypass);
             }")
 
-# 7
-flayr_chop_patch("modules/juce_core/memory/juce_MemoryBlock.cpp" "Flayr Chop: base64 size"
+# 7 (identical to Flayr Tune's patches/juce-base64-declared-size.patch)
+flayr_chop_patch("modules/juce_core/memory/juce_MemoryBlock.cpp" "FLAYR_PATCH juce-base64-declared-size"
 "    auto numBytesNeeded = String (s.text, dot).getIntValue();
 
     setSize ((size_t) numBytesNeeded, true);
+
+    auto srcChars = dot + 1;
+    size_t pos = 0;
 "
-"    auto numBytesNeeded = String (s.text, dot).getIntValue();
+"    // FLAYR_PATCH juce-base64-declared-size: the byte count comes from the encoded text and used to be allocated as
+    // given (\"-1.\" asked for SIZE_MAX and threw std::bad_alloc, \"2000000000.\" for 2 GB,
+    // and getIntValue overflowed on longer numbers). Accept only plain digits, and only a
+    // count the characters after the dot can actually fill.
+    size_t numBytesNeeded = 0;
 
-    // Flayr Chop: base64 size from the text: no more than the characters after the '.' can hold.
-    size_t numChars = 0;
-
-    for (auto p = dot + 1; ! p.isEmpty(); ++p)
-        ++numChars;
-
-    if (numBytesNeeded < 0 || (size_t) numBytesNeeded > numChars * 6 / 8 + 1)
+    for (auto p = s.text; p != dot; ++p)
     {
-        setSize (0);
-        return false;
+        const auto c = *p;
+
+        if (c < '0' || c > '9')
+            return false;
+
+        numBytesNeeded = numBytesNeeded * 10 + (size_t) (c - '0');
+
+        if (numBytesNeeded > (size_t) std::numeric_limits<int>::max())
+            return false;
     }
 
-    setSize ((size_t) numBytesNeeded, true);
+    auto srcChars = dot + 1;
+
+    if (numBytesNeeded > srcChars.length() * 6 / 8 + 1)
+        return false;
+
+    setSize (numBytesNeeded, true);
+
+    size_t pos = 0;
 ")
+
+# 8
+flayr_chop_patch("modules/juce_core/xml/juce_XmlDocument.cpp" "Flayr Chop: XML depth limit"
+"XmlElement* XmlDocument::readNextElement (const bool alsoParseSubElements)
+{
+    XmlElement* node = nullptr;
+"
+"XmlElement* XmlDocument::readNextElement (const bool alsoParseSubElements)
+{
+    // Flayr Chop: XML depth limit. This function recurses once per nesting level, so untrusted text
+    // could exhaust the stack (2,000 levels overflow a 512 KB thread): fail past 64.
+    struct DepthGuard
+    {
+        explicit DepthGuard (int& d) : depth (d) { ++depth; }
+        ~DepthGuard() { --depth; }
+        int& depth;
+    };
+    static thread_local int nesting = 0;
+    const DepthGuard guard (nesting);
+
+    if (nesting > 64)
+    {
+        setLastError (\"too deeply nested\", false);
+        outOfData = true;
+        return nullptr;
+    }
+
+    XmlElement* node = nullptr;
+")
+flayr_chop_patch("modules/juce_core/xml/juce_XmlDocument.cpp" "Flayr Chop: entity depth limit"
+"String XmlDocument::expandExternalEntity (const String& entity)
+{
+"
+"String XmlDocument::expandExternalEntity (const String& entity)
+{
+    // Flayr Chop: entity depth limit (entities that refer to entities recurse here).
+    struct DepthGuard
+    {
+        explicit DepthGuard (int& d) : depth (d) { ++depth; }
+        ~DepthGuard() { --depth; }
+        int& depth;
+    };
+    static thread_local int nesting = 0;
+    const DepthGuard guard (nesting);
+
+    if (nesting > 64)
+    {
+        setLastError (\"entities too deeply nested\", false);
+        outOfData = true;
+        return {};
+    }
+
+")
+
+# 9
+flayr_chop_patch("modules/juce_audio_formats/codecs/juce_WavAudioFormat.cpp" "Flayr Chop: no iXML/axml parsing"
+"                else if (chunkType == chunkName (\"axml\"))
+                {
+                    MemoryBlock axml;
+                    input->readIntoMemoryBlock (axml, (ssize_t) length);
+                    AXMLChunk::addToMetadata (dict, axml.toString());
+                }
+                else if (chunkType == chunkName (\"iXML\"))
+                {
+                    MemoryBlock ixml;
+                    input->readIntoMemoryBlock (ixml, (ssize_t) length);
+                    IXMLChunk::addToMetadata (dict, ixml.toString());
+                }"
+"                else if (chunkType == chunkName (\"axml\") || chunkType == chunkName (\"iXML\"))
+                {
+                    // Flayr Chop: no iXML/axml parsing: free-form XML metadata from the file, never used by
+                    // Flayr Chop, would otherwise go through the XML parser. Skipped like any unknown chunk.
+                }")

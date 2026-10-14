@@ -42,6 +42,7 @@ for t in "${TARGETS[@]}"; do
         stem_cache)    dict=audio.dict; maxlen=131072 ;;
         *) echo "unknown target $t" >&2; exit 2 ;;
     esac
+    maxlen="${FLAYR_CHOP_FUZZ_MAX_LEN:-$maxlen}" # e.g. 1100000 for a slow run with big inputs
     dir="$WORK/$t"
     mkdir -p "$dir/corpus" "$dir/artifacts"
     rm -rf "$dir/seeds"
