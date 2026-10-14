@@ -321,6 +321,96 @@ static void stateXml()
     }
 }
 
+//==============================================================================
+static bool waitLoaded (FlayrChopProcessor& p)
+{
+    const auto t0 = juce::Time::getMillisecondCounterHiRes();
+    while (! (p.hasSample() && p.getBusy() == FlayrChopProcessor::Busy::None))
+    {
+        if (juce::Time::getMillisecondCounterHiRes() - t0 > 60000)
+            return false;
+        pump (0.02);
+    }
+    return true;
+}
+
+static juce::MemoryBlock projectState (FlayrChopProcessor& p, const juce::File& path, const char* paramValue = nullptr,
+                                       const juce::String& libraryPath = {})
+{
+    juce::ValueTree root ("FlayrChop");
+    root.setProperty ("version", "1.2.0", nullptr);
+    auto params = p.apvts.copyState();
+    if (paramValue != nullptr)
+        for (auto child : params)
+            child.setProperty ("value", paramValue, nullptr);
+    root.appendChild (params, nullptr);
+    juce::ValueTree s ("Sample");
+    s.setProperty ("path", path.getFullPathName(), nullptr);
+    if (libraryPath.isNotEmpty())
+        s.setProperty ("libraryPath", libraryPath, nullptr);
+    s.setProperty ("bpm", 120.0, nullptr);
+    juce::ValueTree t ("Pad");
+    t.setProperty ("index", 0, nullptr);
+    t.setProperty ("cue", 0.25, nullptr);
+    t.setProperty ("filter", "nan", nullptr);
+    t.setProperty ("gain", "inf", nullptr);
+    s.appendChild (t, nullptr);
+    root.appendChild (s, nullptr);
+    juce::MemoryBlock mb;
+    juce::AudioProcessor::copyXmlToBinary (*root.createXml(), mb);
+    return mb;
+}
+
+// Plays pad A1 for a while; true if every output sample was finite and within +-4.
+static bool playIsFinite (FlayrChopProcessor& p, float& peak)
+{
+    p.setRateAndBufferSizeDetails (48000.0, 512);
+    p.prepareToPlay (48000.0, 512);
+    for (int i = 0; i < 400 && p.isRendering(); ++i)
+        pump (0.05);
+    juce::AudioBuffer<float> buf (2, 512);
+    bool finite = true;
+    peak = 0.0f;
+    for (int block = 0; block < 200; ++block)
+    {
+        juce::MidiBuffer midi;
+        if (block == 0)
+            midi.addEvent (juce::MidiMessage::noteOn (1, chop::kFirstPadNote, (juce::uint8) 127), 0);
+        p.processBlock (buf, midi);
+        for (int c = 0; c < 2; ++c)
+            for (int i = 0; i < buf.getNumSamples(); ++i)
+            {
+                const float x = buf.getSample (c, i);
+                finite = finite && std::isfinite (x) && std::abs (x) <= 4.0f;
+                if (std::isfinite (x))
+                    peak = juce::jmax (peak, std::abs (x));
+            }
+    }
+    return finite;
+}
+
+static void nanState (const juce::File& dir)
+{
+    const auto wav = goodWav (dir.getChildFile ("nan.wav"), 3.0);
+    FlayrChopProcessor p;
+    const auto st = projectState (p, wav, "nan");
+    p.setStateInformation (st.getData(), (int) st.getSize());
+    CHECK (waitLoaded (p), "nan state: never loaded");
+    bool allFinite = true;
+    for (auto* param : p.getParameters())
+        allFinite = allFinite && std::isfinite (param->getValue());
+    CHECK (allFinite, "nan state: a parameter stayed non-finite");
+    CHECK (std::isfinite (p.getPad (0).gainDb) && std::isfinite (p.getPad (0).filter), "nan state: pad values not finite");
+    float peak = 0.0f;
+    CHECK (playIsFinite (p, peak), "nan state: non-finite output");
+    CHECK (peak > 0.01f, "nan state: pad A1 silent (peak %f)", peak);
+
+    // A host (or automation) pushing NaN straight into a parameter: output stays finite.
+    p.apvts.getParameter ("filter")->setValue (std::numeric_limits<float>::quiet_NaN());
+    p.apvts.getParameter ("volume")->setValue (std::numeric_limits<float>::infinity());
+    CHECK (playIsFinite (p, peak), "NaN parameter: non-finite output");
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI gui;
@@ -329,6 +419,7 @@ int main()
 
     crashFiles (dir);
     stateXml();
+    nanState (dir);
 
     dir.deleteRecursively();
     std::printf ("hardening_test: %d checks, %d failures\n", checks, failures);

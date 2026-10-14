@@ -165,10 +165,12 @@ void FlayrChopProcessor::prepareToPlay (double sampleRate, int)
 //==============================================================================
 Globals FlayrChopProcessor::readGlobals() const
 {
+    // Parameters can be set by hosts and automation; a non-finite one must not reach the audio.
+    auto finiteOr = [] (float v, float fallback) { return std::isfinite (v) ? v : fallback; };
     Globals g;
-    g.gain = juce::Decibels::decibelsToGain (rawVolume->load(), -47.9f);
-    g.filter = rawFilter->load() / 100.0f;
-    g.velocity = rawVelocity->load() / 100.0f;
+    g.gain = juce::Decibels::decibelsToGain (finiteOr (rawVolume->load(), 0.0f), -47.9f);
+    g.filter = juce::jlimit (-1.0f, 1.0f, finiteOr (rawFilter->load(), 0.0f) / 100.0f);
+    g.velocity = juce::jlimit (0.0f, 1.0f, finiteOr (rawVelocity->load(), 30.0f) / 100.0f);
     g.mono = rawMono->load() > 0.5f;
     g.keysMode = rawKeys->load() > 0.5f;
     g.keysPad = keysPadAudio.load (std::memory_order_relaxed);
@@ -178,7 +180,7 @@ Globals FlayrChopProcessor::readGlobals() const
         anySolo = anySolo || rawStemSolo[(size_t) s]->load() > 0.5f;
     for (int s = 0; s < kMaxStems; ++s)
     {
-        float v = rawStemLevel[(size_t) s]->load() / 100.0f;
+        float v = juce::jlimit (0.0f, 1.0f, finiteOr (rawStemLevel[(size_t) s]->load(), 100.0f) / 100.0f);
         if (rawStemMute[(size_t) s]->load() > 0.5f || (anySolo && rawStemSolo[(size_t) s]->load() < 0.5f))
             v = 0.0f;
         g.stemGain[(size_t) s] = v;
@@ -346,6 +348,25 @@ void FlayrChopProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
     }
     firePendingUntil (n);
     renderTo (cursor, n);
+
+    // Last line of defence for the host: never hand it NaN, inf or a blast. Anything non-finite is
+    // silenced and the filter state (where it would otherwise stick) starts over.
+    bool nonFinite = false;
+    for (int ch = 0; ch < 2; ++ch)
+    {
+        float* x = ch == 0 ? L : R;
+        for (int i = 0; i < n; ++i)
+        {
+            if (! std::isfinite (x[i]))
+            {
+                x[i] = 0.0f;
+                nonFinite = true;
+            }
+            x[i] = juce::jlimit (-4.0f, 4.0f, x[i]);
+        }
+    }
+    if (nonFinite)
+        sampler.resetFilter();
 
     // The playhead rides along with the pad that's playing, and stays where it stopped.
     if (! sampler.isPreviewing())
@@ -1427,7 +1448,15 @@ void FlayrChopProcessor::setStateInformation (const void* data, int sizeInBytes)
 
     const auto params = root.getChildWithName (apvts.state.getType());
     if (params.isValid())
+    {
         apvts.replaceState (params);
+        // value="nan" (or inf) survives the parameter's range clamp; put such parameters back to default.
+        for (auto* param : getParameters())
+            if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (param))
+                if (const auto* raw = apvts.getRawParameterValue (ranged->getParameterID());
+                    ! std::isfinite (ranged->getValue()) || (raw != nullptr && ! std::isfinite (raw->load())))
+                    ranged->setValueNotifyingHost (ranged->getDefaultValue());
+    }
 
     const auto ui = root.getChildWithName ("UI");
     selectedPad = juce::jlimit (0, kNumPads - 1, (int) ui.getProperty ("selected", 0));

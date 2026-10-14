@@ -273,6 +273,14 @@ public:
         clock = 0;
     }
 
+    // Audio thread: start the global filter over (after non-finite output).
+    void resetFilter()
+    {
+        for (auto& f : filt)
+            f.reset();
+        filterSmoothed = 0.0f;
+    }
+
     void noteOn (int note, float velocity, const Context& c)
     {
         if (c.rendered == nullptr || c.pads == nullptr || c.rendered->length() == 0)
@@ -707,6 +715,10 @@ private:
 
     void applyFilter (float* l, float* r, int n, float target)
     {
+        if (! std::isfinite (target))
+            target = 0.0f;
+        if (! std::isfinite (filterSmoothed))
+            resetFilter(); // a NaN here would stick forever
         if (std::abs (target) < 0.02f && std::abs (filterSmoothed) < 0.02f)
         {
             filterSmoothed = 0.0f;
