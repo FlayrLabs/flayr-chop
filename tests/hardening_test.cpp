@@ -133,6 +133,66 @@ static void crashFiles (const juce::File& dir)
         CHECK (! ok || (s.original != nullptr && s.original->size() <= 16), "riff lie loaded %d frames", ok ? s.original->size() : -1);
     }
 
+    // Headers that lie in ways only one parser might notice. Whatever the reader decides, the buffer
+    // must hold exactly what will be read and never more than the file can back.
+    {
+        auto loadedWithin = [&] (const juce::File& f, int bytesPerFrame) {
+            chop::LoadedSample s;
+            juce::String why;
+            const bool ok = chop::loadSample (f, s, why);
+            return ! ok ? why.isNotEmpty() : (s.original != nullptr && (juce::int64) s.original->size() * bytesPerFrame <= f.getSize());
+        };
+        // RF64 whose ds64 data size disagrees with its RIFF size field and its real size.
+        {
+            Bytes b;
+            b.tag ("RF64").u32 (100).tag ("WAVE");
+            b.tag ("ds64").u32 (28).u64 (64).u64 (1ULL << 40).u64 (4).u32 (0);
+            fmtChunk (b, 1, 2, 44100, 16);
+            b.tag ("data").u32 (16).zeros (16);
+            CHECK (loadedWithin (b.save (dir.getChildFile ("ds64-vs-riff.wav")), 4), "ds64 vs RIFF size");
+        }
+        // An odd-sized chunk (with and without its pad byte) before the data.
+        for (bool pad : { true, false })
+        {
+            Bytes b;
+            b.tag ("RIFF").u32 (0x7fffffffu).tag ("WAVE");
+            fmtChunk (b, 1, 2, 44100, 16);
+            b.tag ("LIST").u32 (3).zeros (pad ? 4 : 3);
+            b.tag ("data").u32 (0x40000000u).zeros (64);
+            CHECK (loadedWithin (b.save (dir.getChildFile (pad ? "odd-pad.wav" : "odd-nopad.wav")), 4), "odd chunk padding %d", (int) pad);
+        }
+        // Two fmt chunks (sane, then a 4.29 GHz one) and two data chunks.
+        {
+            Bytes b;
+            b.tag ("RIFF").u32 (200).tag ("WAVE");
+            fmtChunk (b, 1, 2, 44100, 16);
+            fmtChunk (b, 1, 2, 0xffffffffu, 16);
+            b.tag ("data").u32 (16).zeros (16);
+            b.tag ("data").u32 (0x7ffffff0u).zeros (16);
+            CHECK (loadedWithin (b.save (dir.getChildFile ("two-fmt.wav")), 4), "two fmt / data chunks");
+        }
+        {
+            Bytes b;
+            b.tag ("RIFF").u32 (200).tag ("WAVE");
+            fmtChunk (b, 1, 2, 0xffffffffu, 16);
+            fmtChunk (b, 1, 2, 44100, 16);
+            b.tag ("data").u32 (0x7ffffff0u).zeros (16);
+            CHECK (loadedWithin (b.save (dir.getChildFile ("two-fmt-bad-first.wav")), 4), "bad fmt then good fmt");
+        }
+        // Absurd channel counts and bit depths.
+        CHECK (loadedWithin (riffWav (dir.getChildFile ("chans.wav"), 44100, 0x7ffffff0u, 64, 65535, 16), 2), "65535 channels");
+        CHECK (loadedWithin (riffWav (dir.getChildFile ("bits.wav"), 44100, 0x7ffffff0u, 64, 2, 0), 4), "0 bits");
+        // A real file cut short (header claims 2 s).
+        {
+            const auto full = goodWav (dir.getChildFile ("full.wav"), 2.0);
+            juce::MemoryBlock mb;
+            full.loadFileAsData (mb);
+            const auto cut = dir.getChildFile ("cut.wav");
+            cut.replaceWithData (mb.getData(), mb.getSize() / 3);
+            CHECK (loadedWithin (cut, 4), "truncated file");
+        }
+    }
+
     // Longer than 20 minutes at a sane rate (header only; the length check comes before any read).
     CHECK (refused (rf64Wav (dir.getChildFile ("long.wav"), 8000, 8000ULL * 8 * 1300, 64), error), "21-minute file not refused");
 

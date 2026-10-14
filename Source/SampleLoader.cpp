@@ -25,6 +25,7 @@ constexpr double kMaxSeconds = 20.0 * 60.0;
 
 // File headers are untrusted: a rate or length from a crafted file must never size a buffer on its own.
 constexpr double kMinRate = 8000.0, kMaxRate = 768000.0;
+constexpr unsigned int kMaxChannels = 64;
 constexpr juce::int64 kMaxFrames = (juce::int64) (kMaxSeconds * 192000.0); // 20 minutes at 192 kHz
 static_assert (kMaxFrames <= std::numeric_limits<int>::max(), "frame counts are stored as int");
 
@@ -126,61 +127,97 @@ std::vector<float> monoMix (const Stereo& s)
     return m;
 }
 
-bool loadSample (const juce::File& file, LoadedSample& out, juce::String& error, const std::function<bool()>& cancelled)
+// Every reader goes through here. Rate, length and format come only from the reader object that will
+// then be read from (never from a second look at the header, which could disagree with it), and
+// become one checked frame count `frames` that both the allocation and the read loop use.
+static std::unique_ptr<juce::AudioFormatReader> openChecked (const juce::File& file, int& frames, juce::String& error)
 {
+    frames = 0;
     std::unique_ptr<juce::AudioFormatReader> reader (formats().createReaderFor (file));
     if (reader == nullptr)
     {
         error = "Can't read " + file.getFileName();
-        return false;
+        return nullptr;
     }
     const auto rate = reader->sampleRate;
     const auto length = reader->lengthInSamples;
     if (! std::isfinite (rate) || rate < kMinRate || rate > kMaxRate)
     {
         error = file.getFileName() + " has an unsupported sample rate";
-        return false;
+        return nullptr;
+    }
+    if (reader->numChannels < 1 || reader->numChannels > kMaxChannels)
+    {
+        error = file.getFileName() + " has an unsupported number of channels";
+        return nullptr;
     }
     if (length <= 0)
     {
         error = file.getFileName() + " is empty";
-        return false;
+        return nullptr;
     }
     if (length > (juce::int64) (kMaxSeconds * rate) || length > kMaxFrames)
     {
         error = file.getFileName() + " is longer than 20 minutes";
-        return false;
+        return nullptr;
     }
+    // Extra, reject-only: uncompressed audio stores every frame, so a length the file is too small
+    // to hold is a lie. Compressed formats are left to the caps above rather than guessed at.
     if (isUncompressed (*reader))
     {
         const auto bytesPerFrame = (juce::int64) reader->numChannels * (juce::int64) ((reader->bitsPerSample + 7) / 8);
         if (bytesPerFrame <= 0 || length > file.getSize() / bytesPerFrame)
         {
             error = file.getFileName() + " is damaged (its header claims more audio than the file holds)";
-            return false;
+            return nullptr;
         }
     }
+    frames = (int) length; // <= kMaxFrames <= INT_MAX
+    return reader;
+}
 
+// Reads exactly `frames` frames (the count openChecked returned) into a new buffer.
+static std::shared_ptr<Stereo> readAll (juce::AudioFormatReader& reader, int frames, const std::function<bool()>& cancelled)
+{
     auto st = std::make_shared<Stereo>();
-    st->resize ((int) length); // length <= kMaxFrames, checked above
+    st->resize (frames);
+    const int rightCh = reader.numChannels > 1 ? 1 : 0;
     juce::AudioBuffer<float> tmp (2, 1 << 16);
-    for (juce::int64 pos = 0; pos < length; pos += tmp.getNumSamples())
+    for (int pos = 0; pos < frames;)
     {
         if (cancelled && cancelled())
-            return false;
-        const int n = (int) std::min<juce::int64> (tmp.getNumSamples(), length - pos);
-        reader->read (&tmp, 0, n, pos, true, true);
-        const int rightCh = reader->numChannels > 1 ? 1 : 0;
+            return nullptr;
+        const int n = std::min (tmp.getNumSamples(), frames - pos);
+        tmp.clear();
+        if (! reader.read (&tmp, 0, n, pos, true, true))
+            return nullptr; // short or failed read
         std::copy (tmp.getReadPointer (0), tmp.getReadPointer (0) + n, st->l.begin() + pos);
         std::copy (tmp.getReadPointer (rightCh), tmp.getReadPointer (rightCh) + n, st->r.begin() + pos);
+        pos += n;
+    }
+    return st;
+}
+
+bool loadSample (const juce::File& file, LoadedSample& out, juce::String& error, const std::function<bool()>& cancelled)
+{
+    int frames = 0;
+    auto reader = openChecked (file, frames, error);
+    if (reader == nullptr)
+        return false;
+    auto st = readAll (*reader, frames, cancelled);
+    if (st == nullptr)
+    {
+        if (! (cancelled && cancelled()))
+            error = "Can't read " + file.getFileName() + " (the file is damaged or cut short)";
+        return false;
     }
 
     out.file = file;
-    out.fileRate = rate;
+    out.fileRate = reader->sampleRate;
     out.original = st;
     const auto mono = monoMix (*st);
-    out.analysis = analysis::analyse (mono.data(), (int) mono.size(), rate);
-    out.overview = analysis::overview (mono.data(), (int) mono.size(), rate, 4096);
+    out.analysis = analysis::analyse (mono.data(), (int) mono.size(), out.fileRate);
+    out.overview = analysis::overview (mono.data(), (int) mono.size(), out.fileRate, 4096);
     return true;
 }
 
@@ -234,15 +271,15 @@ bool loadCachedStems (const juce::File& audioFile, int expectedLength, std::vect
     std::vector<StereoPtr> loaded;
     for (int i = 0; i < n.size(); ++i)
     {
-        std::unique_ptr<juce::AudioFormatReader> reader (formats().createReaderFor (dir.getChildFile (juce::String (i) + ".flac")));
-        if (reader == nullptr || reader->lengthInSamples != expectedLength)
+        // Cache files get the same checks as any other audio file.
+        int frames = 0;
+        juce::String error;
+        auto reader = openChecked (dir.getChildFile (juce::String (i) + ".flac"), frames, error);
+        if (reader == nullptr || frames != expectedLength)
             return false;
-        auto st = std::make_shared<Stereo>();
-        st->resize (expectedLength);
-        juce::AudioBuffer<float> tmp (2, expectedLength);
-        reader->read (&tmp, 0, expectedLength, 0, true, true);
-        std::copy (tmp.getReadPointer (0), tmp.getReadPointer (0) + expectedLength, st->l.begin());
-        std::copy (tmp.getReadPointer (1), tmp.getReadPointer (1) + expectedLength, st->r.begin());
+        auto st = readAll (*reader, frames, {});
+        if (st == nullptr)
+            return false;
         loaded.push_back (st);
     }
     stems = std::move (loaded);
