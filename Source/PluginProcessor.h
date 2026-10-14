@@ -196,6 +196,18 @@ private:
     std::vector<std::function<void()>> inbox;
     std::unique_ptr<juce::ValueTree> pendingPadState; // pads restored with a project, applied after load
 
+    // Project state across threads (see getStateInformation).
+    void applyState (const juce::XmlElement&);
+    juce::ValueTree buildSampleState() const;
+    juce::ValueTree buildUiState() const;
+    void refreshStateSnapshot();
+    std::mutex stateMutex;
+    juce::ValueTree snapshotSample { "Sample" }, snapshotUi { "UI" };
+    std::unique_ptr<juce::MemoryBlock> pendingState; // restored off the message thread, not applied yet
+    uint64_t stateGeneration = 0;
+    int snapshotTicks = 0;
+    std::shared_ptr<int> lifetime = std::make_shared<int> (0);
+
     // UI note queue into the audio thread.
     juce::AbstractFifo uiFifo { 256 };
     std::array<std::pair<int, bool>, 256> uiNotes {};

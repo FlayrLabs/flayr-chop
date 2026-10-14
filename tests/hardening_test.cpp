@@ -4,6 +4,7 @@
 #include "stems/Resampler.h"
 
 #include <cstdio>
+#include <thread>
 
 static int failures = 0, checks = 0;
 #define CHECK(cond, ...)                                    \
@@ -411,6 +412,59 @@ static void nanState (const juce::File& dir)
     CHECK (playIsFinite (p, peak), "NaN parameter: non-finite output");
 }
 
+//==============================================================================
+static juce::MemoryBlock stateFrom (FlayrChopProcessor& p, bool otherThread)
+{
+    juce::MemoryBlock mb;
+    if (otherThread)
+        std::thread ([&] { p.getStateInformation (mb); }).join();
+    else
+        p.getStateInformation (mb);
+    return mb;
+}
+
+static juce::ValueTree sampleIn (const juce::MemoryBlock& mb)
+{
+    const auto xml = juce::AudioProcessor::getXmlFromBinary (mb.getData(), (int) mb.getSize());
+    return xml != nullptr ? juce::ValueTree::fromXml (*xml).getChildWithName ("Sample") : juce::ValueTree();
+}
+
+// Hosts that save and restore off the message thread.
+static void threadedState (const juce::File& dir)
+{
+    const auto wav = goodWav (dir.getChildFile ("threads.wav"), 3.0);
+    {
+        FlayrChopProcessor p;
+        const auto st = projectState (p, wav);
+        std::thread ([&] { p.setStateInformation (st.getData(), (int) st.getSize()); }).join();
+        // Not applied yet: a save from any thread returns the restored project unchanged (as PR #5 does).
+        CHECK (stateFrom (p, true) == st, "threaded restore: off-thread save before apply differs");
+        CHECK (stateFrom (p, false) == st, "threaded restore: message-thread save before apply differs");
+        CHECK (waitLoaded (p), "threaded restore: never applied");
+        CHECK (p.getPad (0).hasCue() && std::abs (p.getPad (0).cue - 0.25) < 1e-6, "threaded restore: pad not restored");
+        pump (0.2);
+        const auto a = sampleIn (stateFrom (p, true)), b = sampleIn (stateFrom (p, false));
+        CHECK (a.isValid() && a.isEquivalentTo (b), "threaded save differs from a message-thread save");
+        CHECK (a.getChildWithProperty ("index", 0).isValid(), "threaded save lost pad A1");
+
+        // A newer message-thread restore wins over an older queued one.
+        const auto older = projectState (p, dir.getChildFile ("older.wav"));
+        std::thread ([&] { p.setStateInformation (older.getData(), (int) older.getSize()); }).join();
+        p.setStateInformation (st.getData(), (int) st.getSize());
+        pump (0.3);
+        CHECK (! p.getMissingFile().getFileName().contains ("older"), "an older queued restore overrode a newer one");
+    }
+    {
+        // Destroyed with a restore still queued: nothing runs afterwards.
+        auto p = std::make_unique<FlayrChopProcessor>();
+        const auto st = projectState (*p, wav);
+        std::thread ([&] { p->setStateInformation (st.getData(), (int) st.getSize()); }).join();
+        p.reset();
+        pump (0.2);
+        CHECK (true, "survived");
+    }
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI gui;
@@ -420,6 +474,7 @@ int main()
     crashFiles (dir);
     stateXml();
     nanState (dir);
+    threadedState (dir);
 
     dir.deleteRecursively();
     std::printf ("hardening_test: %d checks, %d failures\n", checks, failures);

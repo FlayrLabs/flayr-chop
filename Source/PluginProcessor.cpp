@@ -96,6 +96,7 @@ FlayrChopProcessor::FlayrChopProcessor()
         rawStemSolo[(size_t) s] = apvts.getRawParameterValue (stemSoloId (s));
     }
     publishPads();
+    refreshStateSnapshot();
     startTimerHz (30);
 #if FLAYR_CHOP_TEST_HOOKS
     // Local UI tests only (never in release builds): load a track at start-up.
@@ -106,6 +107,7 @@ FlayrChopProcessor::FlayrChopProcessor()
 
 FlayrChopProcessor::~FlayrChopProcessor()
 {
+    lifetime.reset(); // queued state restores see this and do nothing
     stopTimer();
     cancelJob = true;
     if (worker.joinable())
@@ -911,6 +913,13 @@ void FlayrChopProcessor::timerCallback()
     for (auto& f : todo)
         f();
 
+    // Saves from other threads read this snapshot; a few times a second keeps it current.
+    if (! todo.empty() || ++snapshotTicks >= 3)
+    {
+        snapshotTicks = 0;
+        refreshStateSnapshot();
+    }
+
     // The host changed sample rate: rebuild the source at the new rate.
     const double rate = hostRate.load();
     if (sample != nullptr && rate > 0.0 && source != nullptr && std::abs (sourceRate - rate) > 1e-6 && busy == Busy::None)
@@ -1322,12 +1331,52 @@ bool FlayrChopProcessor::exportAll (const juce::File& folder, bool withStems)
 }
 
 //==============================================================================
+static bool onMessageThread()
+{
+    const auto* mm = juce::MessageManager::getInstanceWithoutCreating();
+    return mm == nullptr || mm->isThisTheMessageThread();
+}
+
+// Hosts may save and restore from any thread, but the model (sample, pads, status, the pending
+// restore) belongs to the message thread. The message thread keeps a snapshot of it for saves from
+// elsewhere; parameters come from the thread-safe apvts.copyState().
+void FlayrChopProcessor::refreshStateSnapshot()
+{
+    auto sampleTree = buildSampleState();
+    auto uiTree = buildUiState();
+    std::lock_guard<std::mutex> lock (stateMutex);
+    snapshotSample = sampleTree;
+    snapshotUi = uiTree;
+}
+
 void FlayrChopProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
+    juce::ValueTree sampleTree, uiTree;
+    if (onMessageThread())
+        refreshStateSnapshot();
+    {
+        std::lock_guard<std::mutex> lock (stateMutex);
+        // Restored from another thread and not applied yet: that state is the project.
+        if (pendingState != nullptr)
+        {
+            destData = *pendingState;
+            return;
+        }
+        sampleTree = snapshotSample.createCopy();
+        uiTree = snapshotUi.createCopy();
+    }
+
     juce::ValueTree root ("FlayrChop");
     root.setProperty ("version", JucePlugin_VersionString, nullptr);
     root.appendChild (apvts.copyState(), nullptr);
+    root.appendChild (sampleTree, nullptr);
+    root.appendChild (uiTree, nullptr);
+    if (auto xml = root.createXml())
+        copyXmlToBinary (*xml, destData);
+}
 
+juce::ValueTree FlayrChopProcessor::buildSampleState() const
+{
     juce::ValueTree s ("Sample");
     const auto file = sample ? sample->file : missingFile;
     s.setProperty ("path", file.getFullPathName(), nullptr);
@@ -1361,18 +1410,18 @@ void FlayrChopProcessor::getStateInformation (juce::MemoryBlock& destData)
         s.appendChild (t, nullptr);
     }
     // A restored project not applied yet (sample missing or still loading) saves as it came in.
-    root.appendChild (pendingPadState != nullptr ? pendingPadState->createCopy() : s, nullptr);
+    return pendingPadState != nullptr ? pendingPadState->createCopy() : s;
+}
 
+juce::ValueTree FlayrChopProcessor::buildUiState() const
+{
     juce::ValueTree ui ("UI");
     ui.setProperty ("selected", selectedPad, nullptr);
     ui.setProperty ("bank", bank, nullptr);
     ui.setProperty ("chopMode", chopModeUI, nullptr);
     ui.setProperty ("chopCount", chopCountUI, nullptr);
     ui.setProperty ("snap", snapUI, nullptr);
-    root.appendChild (ui, nullptr);
-
-    if (auto xml = root.createXml())
-        copyXmlToBinary (*xml, destData);
+    return ui;
 }
 
 // Project state comes from files anyone can hand out, and JUCE's XmlDocument recurses per element and
@@ -1439,10 +1488,45 @@ std::unique_ptr<juce::XmlElement> FlayrChopProcessor::parseState (const void* da
 
 void FlayrChopProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
-    const auto xml = parseState (data, sizeInBytes);
+    auto xml = parseState (data, sizeInBytes); // pure: fine on any thread
     if (xml == nullptr)
         return;
-    const auto root = juce::ValueTree::fromXml (*xml);
+    if (onMessageThread())
+    {
+        {
+            std::lock_guard<std::mutex> lock (stateMutex);
+            pendingState.reset();
+            ++stateGeneration;
+        }
+        applyState (*xml);
+        return;
+    }
+
+    // Another thread: keep the blob (a save before it's applied returns it unchanged) and apply it
+    // on the message thread, unless a newer restore or this processor's destruction comes first.
+    uint64_t generation = 0;
+    {
+        std::lock_guard<std::mutex> lock (stateMutex);
+        pendingState = std::make_unique<juce::MemoryBlock> (data, (size_t) sizeInBytes);
+        generation = ++stateGeneration;
+    }
+    std::shared_ptr<const juce::XmlElement> parsed (xml.release());
+    juce::MessageManager::callAsync ([this, alive = std::weak_ptr<int> (lifetime), parsed, generation] {
+        if (alive.expired())
+            return;
+        {
+            std::lock_guard<std::mutex> lock (stateMutex);
+            if (stateGeneration != generation)
+                return;
+            pendingState.reset();
+        }
+        applyState (*parsed);
+    });
+}
+
+void FlayrChopProcessor::applyState (const juce::XmlElement& xml)
+{
+    const auto root = juce::ValueTree::fromXml (xml);
     if (! root.hasType ("FlayrChop"))
         return;
 
@@ -1480,6 +1564,7 @@ void FlayrChopProcessor::setStateInformation (const void* data, int sizeInBytes)
             sendChangeMessage();
         }
     }
+    refreshStateSnapshot();
 }
 
 juce::AudioProcessorEditor* FlayrChopProcessor::createEditor() { return new FlayrChopEditor (*this); }
