@@ -32,7 +32,8 @@
 #include <thread>
 
 #if !defined(_WIN32)
-#include <unistd.h> // sysconf
+#include <pwd.h>    // getpwuid
+#include <unistd.h> // sysconf, getuid
 #endif
 #if defined(__APPLE__)
 #include <sys/sysctl.h>
@@ -784,23 +785,34 @@ long long defaultModelSize() { return kKnownModels[0].size; }
 
 std::string defaultModelPath()
 {
+    // Only absolute locations: with HOME (or APPDATA) unset the old code fell back to a path
+    // relative to whatever the host's working directory happened to be.
     std::filesystem::path base;
 #if defined(_WIN32)
-    if (const char* appdata = std::getenv("APPDATA"))
+    if (const char* appdata = std::getenv("APPDATA"); appdata && *appdata)
         base = std::filesystem::u8path(appdata);
-    else if (const char* profile = std::getenv("USERPROFILE"))
+    else if (const char* profile = std::getenv("USERPROFILE"); profile && *profile)
         base = std::filesystem::u8path(profile) / "AppData" / "Roaming";
+    if (base.empty() || !base.is_absolute())
+        return {};
     base = base / "Flayr Chop" / "models";
-#elif defined(__APPLE__)
-    if (const char* home = std::getenv("HOME"))
-        base = home;
-    base = base / "Library" / "Application Support" / "Flayr Chop" / "models";
 #else
-    if (const char* xdg = std::getenv("XDG_DATA_HOME"); xdg && *xdg)
-        base = xdg;
-    else if (const char* home = std::getenv("HOME"))
-        base = std::filesystem::path(home) / ".local" / "share";
-    base = base / "Flayr Chop" / "models";
+    std::filesystem::path home;
+    if (const char* h = std::getenv("HOME"); h && *h)
+        home = h;
+    if (home.empty() || !home.is_absolute())
+        if (const passwd* pw = getpwuid(getuid()); pw && pw->pw_dir && *pw->pw_dir)
+            home = pw->pw_dir;
+#if defined(__APPLE__)
+    base = home / "Library" / "Application Support" / "Flayr Chop" / "models";
+#else
+    if (const char* xdg = std::getenv("XDG_DATA_HOME"); xdg && *xdg && std::filesystem::path(xdg).is_absolute())
+        base = std::filesystem::path(xdg) / "Flayr Chop" / "models";
+    else
+        base = home / ".local" / "share" / "Flayr Chop" / "models";
+#endif
+    if (!base.is_absolute())
+        return {};
 #endif
     return fromPath(base / defaultModelFileName());
 }

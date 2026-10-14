@@ -877,7 +877,16 @@ void FlayrChopProcessor::separateStems()
 {
     if (sample == nullptr || busy != Busy::None)
         return;
-    const auto modelPath = stems::defaultModelPath();
+    auto modelPath = stems::defaultModelPath();
+    if (modelPath.empty()) // no HOME / APPDATA in the host's environment: ask the OS instead
+        modelPath = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+#if JUCE_MAC
+                        .getChildFile ("Application Support")
+#endif
+                        .getChildFile ("Flayr Chop/models")
+                        .getChildFile (stems::defaultModelFileName())
+                        .getFullPathName()
+                        .toStdString();
     const bool needModel = ! stems::modelAvailable (modelPath);
     busy = Busy::Separating;
     progress = 0.0f;
@@ -1621,7 +1630,7 @@ void FlayrChopProcessor::applyState (const juce::XmlElement& xml)
     const auto ui = root.getChildWithName ("UI");
     selectedPad = juce::jlimit (0, kNumPads - 1, (int) ui.getProperty ("selected", 0));
     bank = juce::jlimit (0, kNumBanks - 1, (int) ui.getProperty ("bank", 0));
-    chopModeUI = juce::jlimit (0, 4, (int) ui.getProperty ("chopMode", 0));
+    chopModeUI = juce::jlimit (0, 7, (int) ui.getProperty ("chopMode", 0)); // the menu has 8 modes
     chopCountUI = juce::jlimit (4, 64, (int) ui.getProperty ("chopCount", 16));
     snapUI = ui.getProperty ("snap", true);
 

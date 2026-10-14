@@ -78,6 +78,7 @@ bool separate(const float* left, const float* right, int numSamples, double samp
 // macOS:   ~/Library/Application Support/Flayr Chop/models/ggml-model-htdemucs-4s-f16.bin
 // Windows: %APPDATA%\Flayr Chop\models\ggml-model-htdemucs-4s-f16.bin
 // Linux:   $XDG_DATA_HOME or ~/.local/share/Flayr Chop/models/ggml-model-htdemucs-4s-f16.bin
+// Always absolute; empty if no home folder can be found (never a relative path).
 std::string defaultModelPath();
 
 // True when the file exists and looks like a complete, supported model

@@ -606,6 +606,14 @@ static void legacyState (const juce::File& dir)
     CHECK (std::abs (p.apvts.getRawParameterValue ("volume")->load() + 6.0f) < 1e-3f, "legacy state: parameters not applied");
     if (const auto copy = p.getLibraryCopy(); copy.existsAsFile())
         copy.deleteFile();
+
+    // The auto-chop menu has 8 modes; the restore used to clamp to the first 5.
+    for (auto [saved, expected] : { std::pair<int, int> { 7, 7 }, { 5, 5 }, { 99, 7 }, { -3, 0 } })
+    {
+        const auto ui = blob ("<FlayrChop><UI chopMode=\"" + juce::String (saved) + "\"/></FlayrChop>");
+        p.setStateInformation (ui.getData(), (int) ui.getSize());
+        CHECK (p.chopModeUI == expected, "chopMode %d restored as %d", saved, p.chopModeUI);
+    }
 }
 
 int main()
