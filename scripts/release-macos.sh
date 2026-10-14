@@ -13,13 +13,45 @@ IDENTITY="${IDENTITY:-Developer ID Application: Flayr Labs LLC (NRNU83UJ68)}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-flayr-notary}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="$(sed -n 's/^project(FlayrChop VERSION \([0-9.]*\).*/\1/p' "$ROOT/CMakeLists.txt")"
-BUILD="$ROOT/build-release-macos"
+
+# Only ever sign exactly what a release tag holds: a clean checkout sitting on a v* tag, rebuilt
+# from a fresh clone of that tag (so no local edit, untracked file or stale build directory can end
+# up signed with the Flayr Labs identity).
+if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
+    echo "error: the working tree has changes or untracked files; commit or clean them first" >&2
+    exit 1
+fi
+TAG="$(git -C "$ROOT" describe --tags --exact-match --match 'v*' HEAD 2>/dev/null || true)"
+if [[ -z "$TAG" ]]; then
+    echo "error: HEAD is not exactly at a v* release tag" >&2
+    exit 1
+fi
+TAG_COMMIT="$(git -C "$ROOT" rev-parse "$TAG^{commit}")"
+VERSION="${TAG#v}"
+if [[ "$(sed -n 's/^project(FlayrChop VERSION \([0-9.]*\).*/\1/p' "$ROOT/CMakeLists.txt")" != "$VERSION" ]]; then
+    echo "error: CMakeLists.txt version does not match tag $TAG" >&2
+    exit 1
+fi
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+SRC="$WORK/src"
+git clone --quiet --no-local --branch "$TAG" "$ROOT" "$SRC"
+if [[ "$(git -C "$SRC" rev-parse HEAD)" != "$TAG_COMMIT" ]]; then
+    echo "error: the fresh clone is not at $TAG ($TAG_COMMIT)" >&2
+    exit 1
+fi
+
+BUILD="$WORK/build"
 DIST="$ROOT/dist"
 DMG="$DIST/FlayrChop-$VERSION-macOS.dmg"
 
-echo "==> Building Flayr Chop $VERSION (universal)"
-cmake -S "$ROOT" -B "$BUILD" -G Xcode -DFLAYR_CHOP_COPY_AFTER_BUILD=OFF -DFLAYR_CHOP_BUILD_TESTS=OFF >/dev/null
+echo "==> Building Flayr Chop $VERSION (universal) from a fresh clone of $TAG"
+cmake -S "$SRC" -B "$BUILD" -G Xcode \
+    -DFLAYR_CHOP_COPY_AFTER_BUILD=OFF \
+    -DFLAYR_CHOP_TEST_HOOKS=OFF \
+    -DFLAYR_CHOP_BUILD_TESTS=OFF \
+    -DFLAYR_CHOP_BUILD_TOOLS=OFF >/dev/null
 cmake --build "$BUILD" --config Release --target FlayrChop_AU FlayrChop_VST3 -- -quiet
 
 ART="$BUILD/FlayrChop_artefacts/Release"
@@ -43,7 +75,7 @@ xcrun stapler staple "$STAGE/Flayr Chop.vst3"
 echo "==> Building the DMG"
 ln -s "/Library/Audio/Plug-Ins/Components" "$STAGE/Drag AU here (Logic, GarageBand)"
 ln -s "/Library/Audio/Plug-Ins/VST3" "$STAGE/Drag VST3 here (Ableton, FL, Cubase, Reaper...)"
-cp "$ROOT/packaging/macos/Install.txt" "$STAGE/Install.txt"
+cp "$SRC/packaging/macos/Install.txt" "$STAGE/Install.txt"
 rm -f "$DMG"
 hdiutil create -volname "Flayr Chop $VERSION" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
 codesign --force --timestamp --sign "$IDENTITY" "$DMG"

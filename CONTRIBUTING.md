@@ -39,8 +39,8 @@ Please include:
 
 1. Bump `project(FlayrChop VERSION x.y.z)` in `CMakeLists.txt`, commit, then tag and push `vx.y.z`.
    GitHub Actions builds the Windows installer and the Linux package and puts them on a draft release.
-2. On a Mac with the Flayr Labs Developer ID, run `scripts/release-macos.sh --upload` to add the
-   signed and notarized DMG.
+2. On a Mac with the Flayr Labs Developer ID, check out the tag (clean tree) and run
+   `scripts/release-macos.sh --upload` to add the signed and notarized DMG. The script refuses to
+   run anywhere else and builds from a fresh clone of the tag.
 3. Publish the draft.
 
-By contributing, you agree that your contributions are licensed under the AGPLv3.
