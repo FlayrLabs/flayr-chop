@@ -31,6 +31,26 @@ static_assert (kMaxFrames <= std::numeric_limits<int>::max(), "frame counts are 
 constexpr juce::int64 kMaxFramesPerCompressedByte = 16384;
 constexpr float kMaxSampleValue = 16.0f;
 
+// Like AudioFormatManager::createReaderFor (every format that claims the file's extension, in
+// registration order), except that a FLAC file JUCE's own FLAC decoder refuses is not handed on to
+// the operating system's decoder. libFLAC covers the format completely, so that fallback only ever
+// ran Core Audio's parser on damaged files, and fuzzing found a FLAC comment block that made it ask
+// for 64 GB. Other formats still fall back: Core Audio reads WAV/AIFF variants (IMA ADPCM, u-law)
+// and Ogg codecs that JUCE's readers don't.
+std::unique_ptr<juce::AudioFormatReader> createReader (const juce::File& file)
+{
+    const bool flacOnly = file.hasFileExtension ("flac");
+    for (auto* format : formats())
+    {
+        if (! format->canHandleFile (file) || (flacOnly && dynamic_cast<juce::FlacAudioFormat*> (format) == nullptr))
+            continue;
+        if (auto in = file.createInputStream())
+            if (auto* reader = format->createReaderFor (in.release(), true))
+                return std::unique_ptr<juce::AudioFormatReader> (reader);
+    }
+    return nullptr;
+}
+
 // Uncompressed formats store every frame, so a length the file can't hold is a lie.
 bool isUncompressed (const juce::AudioFormatReader& r)
 {
@@ -137,7 +157,7 @@ namespace detail
 std::unique_ptr<juce::AudioFormatReader> openChecked (const juce::File& file, int& frames, juce::String& error)
 {
     frames = 0;
-    std::unique_ptr<juce::AudioFormatReader> reader (formats().createReaderFor (file));
+    auto reader = createReader (file);
     if (reader == nullptr)
     {
         error = "Can't read " + file.getFileName();

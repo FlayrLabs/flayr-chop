@@ -253,6 +253,18 @@ static void crashFiles (const juce::File& dir)
         CHECK (loadsFinite (fixtures.getChildFile ("float-nan.wav")), "the fuzzer's float NaN file did not load as finite audio");
     }
 
+    // Found by fuzzing (macOS): a damaged FLAC that JUCE's decoder refused was handed on to Core
+    // Audio, whose FLAC parser read a comment count from it and asked for 64 GB. A .flac is only ever
+    // read by libFLAC now, so neither that file nor anything else named .flac reaches another parser.
+    CHECK (refused (fixtures.getChildFile ("flac-coreaudio-comment.flac"), error), "damaged FLAC reached another reader");
+    {
+        juce::MemoryBlock wavBytes;
+        goodWav (dir.getChildFile ("real.wav"), 0.5).loadFileAsData (wavBytes);
+        const auto renamed = dir.getChildFile ("wav-named.flac");
+        renamed.replaceWithData (wavBytes.getData(), wavBytes.getSize());
+        CHECK (refused (renamed, error), "a WAV named .flac was opened by a non-FLAC reader");
+    }
+
     // Longer than 20 minutes at a sane rate (header only; the length check comes before any read).
     CHECK (refused (rf64Wav (dir.getChildFile ("long.wav"), 8000, 8000ULL * 8 * 1300, 64), error), "21-minute file not refused");
 
