@@ -227,9 +227,9 @@ void FlayrChopProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
     if (const int cmd = transportCmd.exchange (0))
     {
         if (cmd == 1)
-            sampler.startPreview (transportFrom.load(), c);
+            sampler.startTransport (transportFrom.load(), c);
         else
-            sampler.stopPreview();
+            sampler.stopTransport();
     }
 
     // Notes from the editor play at the start of the block.

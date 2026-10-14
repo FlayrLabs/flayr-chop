@@ -300,6 +300,9 @@ public:
             if (c.g.mono || samePad || group || sameKey)
                 v.fastRelease (sr);
         }
+        // In mono a pad also takes over from the transport, so the song never plays twice.
+        if (c.g.mono)
+            stopPreview();
 
         auto& v = freeVoice();
         const auto& r = *c.rendered;
@@ -374,8 +377,23 @@ public:
         v.filter = std::clamp (p.filter, -1.0f, 1.0f);
     }
 
-    // The whole track, played from a position (the transport above the waveform). It plays
-    // alongside the pads and is never choked by them.
+    // PLAY: the whole track from a position. Pads still ringing are cut first, otherwise a
+    // slice that runs to the end of the song plays on top of it.
+    void startTransport (double sourceSec, const Context& c)
+    {
+        allNotesOff();
+        startPreview (sourceSec, c);
+    }
+
+    // STOP: silence everything, pads included.
+    void stopTransport()
+    {
+        allNotesOff();
+        stopPreview();
+    }
+
+    // The whole track, played from a position (the transport above the waveform). In poly mode
+    // pads can play over it; in mono a pad hit stops it.
     void startPreview (double sourceSec, const Context& c)
     {
         if (c.rendered == nullptr || c.rendered->length() == 0)

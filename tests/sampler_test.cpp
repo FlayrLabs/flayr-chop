@@ -342,6 +342,39 @@ static void testPreviewAndPadRenders()
     smp.render (l.data(), rr.data(), 24000, c);
     CHECK (! smp.isPreviewing() && rms (l, 2000, 24000) < 1e-6, "preview stops");
 
+    // PLAY cuts a pad still ringing (a slice to the end of the song must not double the track),
+    // STOP silences pads too, and in mono a pad hit stops the transport.
+    {
+        PadTable lone;
+        lone.pads[0].cue = 1.0; // only cue: plays to the end of the track
+        resolveEnds (lone, 8.0);
+        Context lc = c;
+        lc.pads = &lone;
+        lc.g.mono = false;
+        Sampler m;
+        m.prepare (kSr);
+        m.noteOn (kFirstPadNote, 1.0f, lc);
+        m.render (l.data(), rr.data(), 4800, lc);
+        m.startTransport (4.0, lc);
+        for (int b = 0; b < 4; ++b)
+            m.render (l.data(), rr.data(), 4800, lc);
+        CHECK (m.isPreviewing() && m.activeVoices() == 0, "PLAY cuts ringing pads (%d left)", m.activeVoices());
+        m.noteOn (kFirstPadNote, 1.0f, lc); // poly: layers over the transport
+        m.render (l.data(), rr.data(), 4800, lc);
+        CHECK (m.isPreviewing() && m.activeVoices() == 1, "poly pad plays over the transport");
+        m.stopTransport();
+        for (int b = 0; b < 4; ++b)
+            m.render (l.data(), rr.data(), 4800, lc);
+        CHECK (! m.isPreviewing() && m.activeVoices() == 0, "STOP silences pads too");
+        lc.g.mono = true;
+        m.startTransport (4.0, lc);
+        m.render (l.data(), rr.data(), 4800, lc);
+        m.noteOn (kFirstPadNote, 1.0f, lc);
+        for (int b = 0; b < 4; ++b)
+            m.render (l.data(), rr.data(), 4800, lc);
+        CHECK (! m.isPreviewing() && m.activeVoices() == 1, "mono pad takes over from the transport");
+    }
+
     // A pad with its own key shift and stretch gets its own render: +5 st, twice as long.
     PadJob j;
     j.pad = 0;
