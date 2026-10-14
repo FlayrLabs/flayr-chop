@@ -19,10 +19,12 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Build
         run: |
-          cmake -S . -B build -DFLAYR_CHOP_COPY_AFTER_BUILD=OFF
+          cmake -S . -B build -DFLAYR_CHOP_COPY_AFTER_BUILD=OFF -DFLAYR_CHOP_TEST_HOOKS=OFF
           cmake --build build --config Release --parallel 4
           ctest --test-dir build -C Release --output-on-failure
       - name: Installer
@@ -30,13 +32,13 @@ jobs:
         run: |
           $version = $env:GITHUB_REF_NAME.TrimStart('v')
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          if (-not (Test-Path $iscc)) { choco install innosetup --version=6.7.1 -y --no-progress }
           & $iscc "/DAppVersion=$version" "/DSourceDir=$pwd\build\FlayrChop_artefacts\Release\VST3" packaging\windows\FlayrChop.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: dist/*.exe
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows
           path: dist/*.exe
@@ -49,7 +51,9 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Dependencies
         run: |
           sudo apt-get update
@@ -58,7 +62,7 @@ jobs:
             libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev libgl1-mesa-dev
       - name: Build
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DFLAYR_CHOP_COPY_AFTER_BUILD=OFF
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DFLAYR_CHOP_COPY_AFTER_BUILD=OFF -DFLAYR_CHOP_TEST_HOOKS=OFF
           cmake --build build --parallel 4
           ctest --test-dir build --output-on-failure
       - name: Package
@@ -70,10 +74,10 @@ jobs:
           cp -R "build/FlayrChop_artefacts/Release/LV2/Flayr Chop.lv2" "dist/$pkg/"
           cp packaging/linux/install.sh LICENSE "dist/$pkg/"
           tar -C dist -czf "dist/$pkg.tar.gz" "$pkg"
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: dist/*.tar.gz
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux
           path: dist/*.tar.gz
@@ -85,8 +89,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
           merge-multiple: true

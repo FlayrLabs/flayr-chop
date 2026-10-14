@@ -14,16 +14,23 @@ option(FLAYR_CHOP_BUILD_TESTS "Build the test suites" ON)
 option(FLAYR_CHOP_TEST_HOOKS "Local UI testing only: FLAYR_CHOP_AUTOLOAD env var loads a track" OFF)
 
 include(FetchContent)
+# Dependencies are pinned to exact commits (a tag can be moved; a commit hash can't). When bumping,
+# check the new hash with `git ls-remote <repo> refs/tags/<tag>` (the ^{} line for annotated tags).
 FetchContent_Declare(JUCE
     GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
-    GIT_TAG 8.0.15
-    GIT_SHALLOW TRUE)
-# HQ Stretch engine (MIT).
+    GIT_TAG 91ad83ae34a81e0833b1a2b0866f54846370ae53 # 8.0.15
+)
+# HQ Stretch engine (MIT), and the linear-algebra library it uses, declared here first so the
+# version stretch would fetch by tag is pinned by commit too (stretch 1.4.0 asks for 0.6.4).
+FetchContent_Declare(signalsmith-linear
+    GIT_REPOSITORY https://github.com/Signalsmith-Audio/linear.git
+    GIT_TAG de55e6a50ffcf6f8f43f649692d94691c7025151 # 0.6.4
+)
 FetchContent_Declare(signalsmith-stretch
     GIT_REPOSITORY https://github.com/Signalsmith-Audio/signalsmith-stretch.git
-    GIT_TAG 1.4.0
-    GIT_SHALLOW TRUE)
-FetchContent_MakeAvailable(JUCE signalsmith-stretch)
+    GIT_TAG a670068d9aeb64913331d5cc29337b19a457a7df # 1.4.0
+)
+FetchContent_MakeAvailable(JUCE signalsmith-linear signalsmith-stretch)
 
 # Third-party headers: keep their warnings out of ours.
 foreach(lib signalsmith-stretch signalsmith-linear)
