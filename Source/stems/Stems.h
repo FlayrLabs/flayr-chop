@@ -118,6 +118,10 @@ void releaseCachedModels();
 // SHA-256 of a buffer as lowercase hex (the model check uses it).
 std::string sha256Hex(const void* data, size_t size);
 
+// SHA-256 of a file (UTF-8 path) as lowercase hex, read in 1 MB blocks; false if it can't be read or
+// cancelled() returned true between blocks.
+bool sha256File(const std::string& utf8Path, std::string& hexOut, const std::function<bool()>& cancelled = {});
+
 // For tests: parses a model image without the checksum (separate() always
 // checks the SHA-256 first). False for malformed data, which must never read
 // or write out of bounds.

@@ -197,7 +197,8 @@ private:
     double sourceRate = 0.0;
 
     // Background work: one job at a time; results come back through the inbox on the timer.
-    std::thread worker;
+    class JobThread;
+    std::unique_ptr<JobThread> worker;
     std::atomic<bool> cancelJob { false };
     std::mutex inboxMutex;
     std::vector<std::function<void()>> inbox;

@@ -1,12 +1,27 @@
 #include "SampleLoader.h"
 #include "stems/Resampler.h"
+#include "stems/Stems.h"
 
 #include <juce_cryptography/juce_cryptography.h>
 
+#include <array>
+#include <atomic>
+#include <filesystem>
 #include <optional>
 
 #if JUCE_MAC
 #include <copyfile.h>
+#endif
+#if JUCE_WINDOWS
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#else
+#include <sys/stat.h>
 #endif
 
 namespace chop
@@ -30,7 +45,7 @@ constexpr double kMinRate = 8000.0, kMaxRate = 768000.0;
 constexpr unsigned int kMaxChannels = 64;
 constexpr juce::int64 kMaxFrames = (juce::int64) (kMaxSeconds * 192000.0); // 20 minutes at 192 kHz
 static_assert (kMaxFrames <= std::numeric_limits<int>::max(), "frame counts are stored as int");
-constexpr juce::int64 kMaxFramesPerCompressedByte = 16384;
+constexpr juce::int64 kMaxFramesPerCompressedByte = 4096;
 constexpr float kMaxSampleValue = 16.0f;
 
 // True if the file holds a FLAC stream, whatever its name: "fLaC" at the start, or after an ID3v2 tag.
@@ -127,6 +142,12 @@ std::unique_ptr<juce::AudioFormatReader> createReader (const juce::File& file)
     return nullptr;
 }
 
+std::atomic<juce::int64>& loadMemoryBudgetOverride()
+{
+    static std::atomic<juce::int64> bytes { 0 };
+    return bytes;
+}
+
 // Uncompressed formats store every frame, so a length the file can't hold is a lie.
 bool isUncompressed (const juce::AudioFormatReader& r)
 {
@@ -154,12 +175,69 @@ bool isAudioFile (const juce::File& f)
     return false;
 }
 
-bool isNetworkPath (const juce::String& path)
+namespace
+{
+bool looksRemote (const juce::String& path)
 {
     const auto p = path.trimStart();
     return p.startsWith ("\\\\") || p.startsWith ("//") || p.startsWith ("\\/") || p.startsWith ("/\\")
-           || p.startsWithIgnoreCase ("/net/") || p.startsWithIgnoreCase ("/Network/") || p.startsWithIgnoreCase ("smb:")
-           || p.startsWithIgnoreCase ("file:");
+           || p.startsWithIgnoreCase ("/net/") || p.startsWithIgnoreCase ("/Network/")
+           || p.startsWithIgnoreCase ("/System/Volumes/Data/Network/") || p.startsWithIgnoreCase ("/System/Volumes/Data/net/")
+           || p.startsWithIgnoreCase ("smb:") || p.startsWithIgnoreCase ("file:");
+}
+} // namespace
+
+bool isNetworkPath (const juce::String& path)
+{
+    if (looksRemote (path))
+        return true;
+    // What juce::File would actually open: it folds '.', '..' and repeated separators, so
+    // "C:\..\\\host\share" and "/tmp/../net/host" name network locations too.
+    const auto trimmed = path.trim();
+    if (! juce::File::isAbsolutePath (trimmed))
+        return false;
+    const auto full = juce::File (trimmed).getFullPathName();
+    if (looksRemote (full))
+        return true;
+#if JUCE_WINDOWS
+    // A drive letter mapped to a network share.
+    if (full.length() >= 2 && full[1] == ':')
+    {
+        const wchar_t root[] = { (wchar_t) full[0], L':', L'\\', 0 };
+        if (GetDriveTypeW (root) == DRIVE_REMOTE)
+            return true;
+    }
+#endif
+    return false;
+}
+
+bool hasUnsafeComponents (const juce::String& path)
+{
+    juce::StringArray parts;
+    parts.addTokens (path.trim().replaceCharacter ('\\', '/'), "/", "");
+    for (int i = 0; i < parts.size(); ++i)
+    {
+        const auto& c = parts[i];
+        if (c.isEmpty())
+        {
+            if (i == 0 || i == parts.size() - 1) // the leading (or a trailing) separator
+                continue;
+            return true; // repeated separators
+        }
+        if (c.trimEnd().containsOnly (".")) // ".", "..", and what Windows trims down to them ("...", ". ")
+            return true;
+        // Windows device names (CON, NUL, COM1.wav, ...) open a device, whatever the folder.
+        const auto stem = c.upToFirstOccurrenceOf (".", false, false).trimEnd().toUpperCase();
+        if (stem == "CON" || stem == "PRN" || stem == "AUX" || stem == "NUL" || stem == "CONIN$" || stem == "CONOUT$"
+            || ((stem.startsWith ("COM") || stem.startsWith ("LPT")) && stem.length() == 4 && juce::CharacterFunctions::isDigit (stem[3])))
+            return true;
+    }
+    return false;
+}
+
+bool isSafeProjectPath (const juce::String& path)
+{
+    return path.isNotEmpty() && juce::File::isAbsolutePath (path.trim()) && ! hasUnsafeComponents (path) && ! isNetworkPath (path);
 }
 
 static juce::File& libraryFolderOverride()
@@ -185,34 +263,81 @@ bool isInLibrary (const juce::File& f)
     return f.isAChildOf (sampleLibraryFolder().getParentDirectory());
 }
 
-juce::File libraryCopyOf (const juce::File& original)
+bool isPlainFile (const juce::File& f)
 {
-    const auto src = original.getLinkedTarget(); // copy the audio, never a link back to the original
-    if (! src.existsAsFile())
+#if JUCE_WINDOWS
+    return f.existsAsFile() && ! f.isSymbolicLink();
+#else
+    struct stat st {};
+    return ::lstat (f.getFullPathName().toRawUTF8(), &st) == 0 && S_ISREG (st.st_mode);
+#endif
+}
+
+namespace
+{
+bool sameHash (const juce::File& f, const std::string& hash, const std::function<bool()>& cancelled)
+{
+    std::string other;
+    return stems::sha256File (f.getFullPathName().toStdString(), other, cancelled) && other == hash;
+}
+} // namespace
+
+juce::File libraryCopyOf (const juce::File& original, const std::function<bool()>& cancelled)
+{
+    // The real file behind every level of link: the copy holds the audio, never a link back to it.
+    std::error_code ec;
+    const auto resolved = std::filesystem::canonical (std::filesystem::u8path (original.getFullPathName().toStdString()), ec);
+    if (ec)
         return {};
-    const auto hash = juce::SHA256 (src).toHexString();
+    const juce::File src (juce::String (juce::CharPointer_UTF8 (resolved.u8string().c_str())));
+    if (! isPlainFile (src))
+        return {};
+    std::string hash;
+    if (! stems::sha256File (src.getFullPathName().toStdString(), hash, cancelled))
+        return {};
     auto ext = src.getFileExtension().toLowerCase();
     if (ext.length() > 8 || ! ext.substring (1).containsOnly ("abcdefghijklmnopqrstuvwxyz0123456789"))
         ext = {};
     const auto folder = sampleLibraryFolder();
-    const auto dest = folder.getChildFile (hash + ext);
-    if (dest.existsAsFile() && dest.getSize() == src.getSize())
+    const auto dest = folder.getChildFile (juce::String (hash) + ext);
+    // Reused only if it's still a plain file holding exactly this audio (anything else, such as a
+    // link or a file changed since, is replaced below).
+    auto usable = [&] { return isPlainFile (dest) && dest.getSize() == src.getSize() && sameHash (dest, hash, cancelled); };
+    if (dest.exists() && usable())
         return dest;
+    if (cancelled && cancelled())
+        return {};
     if (! folder.createDirectory())
         return {};
 
     // Written under a temporary name and renamed, so a half-written copy is never picked up.
-    const auto tmp = folder.getChildFile (hash + "." + juce::Uuid().toString() + ".part");
+    removeStalePartFiles (folder, {});
+    const auto tmp = folder.getChildFile (juce::String (hash) + "." + juce::Uuid().toString() + ".part");
     bool copied = false;
 #if JUCE_MAC
-    copied = copyfile (src.getFullPathName().toRawUTF8(), tmp.getFullPathName().toRawUTF8(), nullptr, COPYFILE_CLONE) == 0;
+    // src has no links left in it, so the clone (which never follows one) copies the data.
+    copied = copyfile (src.getFullPathName().toRawUTF8(), tmp.getFullPathName().toRawUTF8(), nullptr, COPYFILE_CLONE | COPYFILE_DATA) == 0;
 #else
-    copied = src.copyFileTo (tmp);
+    {
+        juce::FileInputStream in (src);
+        std::unique_ptr<juce::FileOutputStream> out (tmp.createOutputStream());
+        copied = in.openedOk() && out != nullptr && out->openedOk();
+        juce::HeapBlock<char> buffer (1 << 20);
+        while (copied && ! in.isExhausted())
+        {
+            if (cancelled && cancelled())
+                copied = false;
+            else if (const auto n = in.read (buffer, 1 << 20); n < 0 || ! out->write (buffer, (size_t) n))
+                copied = false;
+        }
+        if (out != nullptr)
+            copied = copied && out->flush().wasOk();
+    }
 #endif
-    if (! copied || tmp.getSize() != src.getSize() || ! tmp.moveFileTo (dest))
+    if (! copied || ! isPlainFile (tmp) || tmp.getSize() != src.getSize() || ! tmp.moveFileTo (dest) || ! isPlainFile (dest))
     {
         tmp.deleteFile();
-        return dest.existsAsFile() && dest.getSize() == src.getSize() ? dest : juce::File();
+        return dest.exists() && usable() ? dest : juce::File();
     }
     return dest;
 }
@@ -233,6 +358,16 @@ namespace detail
 std::unique_ptr<juce::AudioFormatReader> openChecked (const juce::File& file, int& frames, juce::String& error)
 {
     frames = 0;
+#if ! JUCE_WINDOWS
+    // Regular files only: opening a FIFO a project points at would block the worker for good, and a
+    // device file is never audio.
+    struct stat st {};
+    if (::stat (file.getFullPathName().toRawUTF8(), &st) != 0 || ! S_ISREG (st.st_mode))
+    {
+        error = "Can't read " + file.getFileName();
+        return nullptr;
+    }
+#endif
     auto reader = createReader (file);
     if (reader == nullptr)
     {
@@ -274,13 +409,27 @@ std::unique_ptr<juce::AudioFormatReader> openChecked (const juce::File& file, in
     }
     // Compressed formats can promise any length in a few bytes, and readers pad whatever isn't there
     // with silence: a 43-byte FLAC header claiming 20 minutes at 192 kHz cost 3 GB and minutes of CPU
-    // to decode, analyse and resample. Real files stay far below this ratio: FLAC's extreme case,
-    // digital silence in 65535-frame blocks, is about 5,000 frames per byte; MP3, AAC and Vorbis are
-    // far lower.
+    // to decode, analyse and resample. Real recordings are around 1 to 10 frames per byte; even digital
+    // silence from a standard FLAC encoder (4096-frame blocks) is about 300. Only files of almost
+    // nothing but silence in oversized blocks go past this.
     else if (length > file.getSize() * kMaxFramesPerCompressedByte)
     {
         error = file.getFileName() + " is damaged (its header claims more audio than the file holds)";
         return nullptr;
+    }
+    // And whatever the format, a load must fit in this machine's memory: the decoded buffers, the
+    // analysis and a resampled copy come to about 24 bytes per frame plus 8 per frame at the host rate
+    // (counted at up to 192 kHz). Refused up front, before any of it is allocated, if that's more than
+    // half the RAM (a 20-minute 192 kHz file needs about 6 GB).
+    {
+        const auto bytes = (double) length * 24.0 + (double) length * juce::jmax (1.0, 192000.0 / rate) * 8.0;
+        const auto budget = loadMemoryBudgetOverride() > 0 ? (double) loadMemoryBudgetOverride()
+                                                           : (double) juce::SystemStats::getMemorySizeInMegabytes() * 1024.0 * 1024.0 * 0.5;
+        if (bytes > budget)
+        {
+            error = file.getFileName() + " is too long to load in this computer's memory";
+            return nullptr;
+        }
     }
     frames = (int) length; // <= kMaxFrames <= INT_MAX
     return reader;
@@ -393,6 +542,11 @@ void setStemCacheRootForTests (const juce::File& folder)
     stemCacheRootOverride() = folder;
 }
 
+void setLoadMemoryBudgetForTests (juce::int64 bytes)
+{
+    loadMemoryBudgetOverride() = bytes;
+}
+
 juce::File stemCacheFolder (const juce::File& audioFile)
 {
     const auto key = audioFile.getFullPathName() + "|" + juce::String (audioFile.getSize()) + "|"
@@ -444,20 +598,42 @@ void saveCachedStems (const juce::File& audioFile, double rate, const std::vecto
 {
     const auto dir = stemCacheFolder (audioFile);
     dir.createDirectory();
+    // The list goes first and comes back last: a cache interrupted anywhere in between has no list,
+    // so it's never picked up. Each stem is written under a temporary name and renamed when complete.
+    dir.getChildFile ("stems.txt").deleteFile();
     juce::FlacAudioFormat flac;
     for (size_t i = 0; i < stems.size(); ++i)
     {
         const auto f = dir.getChildFile (juce::String ((int) i) + ".flac");
-        f.deleteFile();
-        std::unique_ptr<juce::OutputStream> stream = std::make_unique<juce::FileOutputStream> (f);
-        auto w = flac.createWriterFor (stream, writerOptions (rate));
-        if (w == nullptr)
+        const auto tmp = dir.getChildFile (juce::String ((int) i) + "." + juce::Uuid().toString() + ".part");
+        {
+            std::unique_ptr<juce::OutputStream> stream = std::make_unique<juce::FileOutputStream> (tmp);
+            auto w = flac.createWriterFor (stream, writerOptions (rate));
+            if (w == nullptr || ! w->writeFromFloatArrays (std::array<const float*, 2> { stems[i]->l.data(), stems[i]->r.data() }.data(), 2,
+                                                          stems[i]->size()))
+            {
+                w.reset();
+                tmp.deleteFile();
+                return;
+            }
+        } // the writer finishes the file here
+        if (! tmp.moveFileTo (f))
+        {
+            tmp.deleteFile();
             return;
-        const float* ch[2] = { stems[i]->l.data(), stems[i]->r.data() };
-        w->writeFromFloatArrays (ch, 2, stems[i]->size());
+        }
     }
-    // Written last, so a half-written cache is never picked up.
-    dir.getChildFile ("stems.txt").replaceWithText (names.joinIntoString ("\n"));
+    dir.getChildFile ("stems.txt").replaceWithText (names.joinIntoString ("\n")); // via a temp file and a rename
+}
+
+void removeStalePartFiles (const juce::File& folder, const juce::String& prefix)
+{
+    // Unique names, so instances never share one: what's left from a crash or a killed host is
+    // removed once it's a day old (a download in progress elsewhere is younger than that).
+    const auto cutoff = juce::Time::getCurrentTime() - juce::RelativeTime::days (1);
+    for (const auto& f : folder.findChildFiles (juce::File::findFiles, false, prefix + "*.part"))
+        if (f.getLastModificationTime() < cutoff && isPlainFile (f))
+            f.deleteFile();
 }
 
 bool writeWav (const juce::File& file, const Stereo& s, double rate, int start, int length)
@@ -472,7 +648,21 @@ bool writeWav (const juce::File& file, const Stereo& s, double rate, int start, 
     auto w = wav.createWriterFor (stream, writerOptions (rate));
     if (w == nullptr)
         return false;
-    const float* ch[2] = { s.l.data() + start, s.r.data() + start };
-    return w->writeFromFloatArrays (ch, 2, length);
+    // Written through a cleaned copy, a block at a time: a non-finite sample would reach the writer's
+    // float-to-integer conversion (undefined behaviour) and make a broken file.
+    constexpr int block = 1 << 16;
+    std::vector<float> l ((size_t) block), r ((size_t) block);
+    const auto clean = [] (float x) { return std::isfinite (x) ? juce::jlimit (-1.0f, 1.0f, x) : 0.0f; };
+    for (int pos = 0; pos < length;)
+    {
+        const int n = std::min (block, length - pos);
+        std::transform (s.l.begin() + start + pos, s.l.begin() + start + pos + n, l.begin(), clean);
+        std::transform (s.r.begin() + start + pos, s.r.begin() + start + pos + n, r.begin(), clean);
+        const float* ch[2] = { l.data(), r.data() };
+        if (! w->writeFromFloatArrays (ch, 2, n))
+            return false;
+        pos += n;
+    }
+    return true;
 }
 } // namespace chop

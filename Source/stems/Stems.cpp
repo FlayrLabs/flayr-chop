@@ -762,6 +762,38 @@ std::string sha256Hex(const void* data, size_t size)
     return sha256Of(static_cast<const unsigned char*>(data), size);
 }
 
+bool sha256File(const std::string& utf8Path, std::string& hexOut, const std::function<bool()>& cancelled)
+{
+    hexOut.clear();
+    std::FILE* f = nullptr;
+#if defined(_WIN32)
+    f = _wfopen(std::filesystem::u8path(utf8Path).c_str(), L"rb");
+#else
+    f = std::fopen(utf8Path.c_str(), "rb");
+#endif
+    if (f == nullptr)
+        return false;
+    Sha256 h;
+    std::vector<unsigned char> buf(1 << 20);
+    bool ok = true;
+    for (;;) {
+        if (cancelled && cancelled()) {
+            ok = false;
+            break;
+        }
+        const size_t n = std::fread(buf.data(), 1, buf.size(), f);
+        h.update(buf.data(), n);
+        if (n < buf.size()) {
+            ok = std::ferror(f) == 0;
+            break;
+        }
+    }
+    std::fclose(f);
+    if (ok)
+        hexOut = h.hex();
+    return ok;
+}
+
 bool parseModelImage(const void* data, size_t size, std::string* error)
 {
     try {

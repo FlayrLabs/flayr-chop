@@ -64,6 +64,24 @@ juce::String padName (int i)
 }
 } // namespace
 
+// The worker's own thread, with a stack size we choose: decoders and parsers run here on files from
+// anywhere, and a std::thread gets the platform's secondary-thread default (512 KB on macOS), which a
+// crafted file once overflowed through JUCE's recursive XML parser.
+class FlayrChopProcessor::JobThread final : private juce::Thread
+{
+public:
+    explicit JobThread (std::function<void()> fn) : juce::Thread ("Flayr Chop worker", 8 * 1024 * 1024), body (std::move (fn))
+    {
+        if (! startThread())
+            throw std::runtime_error ("can't start the worker thread");
+    }
+    ~JobThread() override { waitForThreadToExit (-1); } // jobs stop on cancelJob; never killed
+
+private:
+    void run() override { body(); }
+    std::function<void()> body;
+};
+
 FlayrChopProcessor::FlayrChopProcessor()
     : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "FlayrChop", createLayout())
@@ -95,8 +113,7 @@ FlayrChopProcessor::~FlayrChopProcessor()
     lifetime.reset(); // queued state restores see this and do nothing
     stopTimer();
     cancelJob = true;
-    if (worker.joinable())
-        worker.join();
+    worker.reset(); // waits for a running job
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout FlayrChopProcessor::createLayout()
@@ -177,7 +194,8 @@ Globals FlayrChopProcessor::readGlobals() const
 
 double FlayrChopProcessor::quantizeGridBeats() const
 {
-    const int q = juce::jlimit (0, kQuantize.size() - 1, (int) rawQuantize->load());
+    const float qRaw = rawQuantize->load(); // (int) of a NaN a host set would be undefined
+    const int q = std::isfinite (qRaw) ? juce::jlimit (0, kQuantize.size() - 1, (int) qRaw) : 0;
     return kQuantizeBeats[q];
 }
 
@@ -205,6 +223,14 @@ void FlayrChopProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
                 hasPpq = true;
             }
         }
+    // Host values can be anything (NaN, infinite, absurd): treat those as unknown.
+    if (! std::isfinite (bpm) || bpm < 0.0 || bpm > 1000.0)
+        bpm = 0.0;
+    if (! std::isfinite (ppq))
+    {
+        hasPpq = false;
+        ppq = 0.0;
+    }
     hostBpm.store (bpm, std::memory_order_relaxed);
     hostPlaying.store (playing, std::memory_order_relaxed);
     const bool canQuantize = playing && hasPpq && bpm > 0.0;
@@ -479,6 +505,8 @@ void FlayrChopProcessor::clearPads (int firstPad, int count)
 
 void FlayrChopProcessor::setSampleBpm (double bpm, bool fromUser)
 {
+    if (! std::isfinite (bpm)) // jlimit passes NaN through
+        return;
     sampleBpm = juce::jlimit (20.0, 400.0, bpm);
     bpmFromUser = bpmFromUser || fromUser;
     sendChangeMessage();
@@ -492,19 +520,27 @@ void FlayrChopProcessor::setSampleKey (int key, bool minor, bool fromUser)
     sendChangeMessage();
 }
 
+// The key shift parameter as a finite, in-range number of semitones (a host can set any float).
+static float keyShiftOf (const juce::AudioProcessorValueTreeState& apvts)
+{
+    const float k = apvts.getRawParameterValue ("keyShift")->load();
+    return std::isfinite (k) ? juce::jlimit (-24.0f, 24.0f, k) : 0.0f;
+}
+
 int FlayrChopProcessor::getTargetKey() const
 {
-    const int shift = (int) apvts.getRawParameterValue ("keyShift")->load();
+    const int shift = (int) keyShiftOf (apvts);
     return (((sampleKey + shift) % 12) + 12) % 12;
 }
 
 double FlayrChopProcessor::getTargetBpm() const
 {
-    const int mode = (int) apvts.getRawParameterValue ("tempoMode")->load();
+    const float modeRaw = apvts.getRawParameterValue ("tempoMode")->load();
+    const int mode = std::isfinite (modeRaw) ? juce::jlimit (0, 2, (int) modeRaw) : 0;
     if (mode == 1)
     {
         const double host = hostBpm.load();
-        if (host <= 0.0)
+        if (! (host > 0.0) || ! std::isfinite (host)) // NaN fails every comparison: test for the good case
             return sampleBpm;
         // Half/double-time aware: follow the host at whichever octave is closest to the sample.
         double best = host;
@@ -514,13 +550,19 @@ double FlayrChopProcessor::getTargetBpm() const
         return best;
     }
     if (mode == 2)
-        return apvts.getRawParameterValue ("tempo")->load();
+    {
+        const double tempo = apvts.getRawParameterValue ("tempo")->load();
+        return std::isfinite (tempo) && tempo > 0.0 ? tempo : sampleBpm;
+    }
     return sampleBpm;
 }
 
 double FlayrChopProcessor::getSpeed() const
 {
-    return sampleBpm > 0.0 ? juce::jlimit (0.25, 4.0, getTargetBpm() / sampleBpm) : 1.0;
+    const double target = getTargetBpm();
+    if (! (sampleBpm > 0.0) || ! std::isfinite (target) || ! (target > 0.0))
+        return 1.0;
+    return juce::jlimit (0.25, 4.0, target / sampleBpm);
 }
 
 RenderSettings FlayrChopProcessor::currentRenderSettings() const
@@ -528,7 +570,7 @@ RenderSettings FlayrChopProcessor::currentRenderSettings() const
     RenderSettings s;
     s.source = source;
     s.speed = getSpeed();
-    s.semis = (float) apvts.getRawParameterValue ("keyShift")->load();
+    s.semis = keyShiftOf (apvts);
     s.hqStretch = apvts.getRawParameterValue ("stretch")->load() > 0.5f;
     s.formant = apvts.getRawParameterValue ("formant")->load() > 0.5f;
     return s;
@@ -538,12 +580,11 @@ RenderSettings FlayrChopProcessor::currentRenderSettings() const
 void FlayrChopProcessor::runJob (std::function<void()> job)
 {
     cancelJob = true;
-    if (worker.joinable())
-        worker.join();
+    worker.reset();
     cancelJob = false;
     // An exception escaping a thread would std::terminate the host (and the user's whole session),
     // so every job ends here: whatever went wrong becomes a status message.
-    worker = std::thread ([this, body = std::move (job)] {
+    auto run = [this, body = std::move (job)] {
         juce::String error;
         try
         {
@@ -568,7 +609,17 @@ void FlayrChopProcessor::runJob (std::function<void()> job)
             status = error;
             sendChangeMessage();
         });
-    });
+    };
+    try
+    {
+        worker = std::make_unique<JobThread> (std::move (run));
+    }
+    catch (...) // no thread: the job doesn't run, and the user hears why
+    {
+        busy = Busy::None;
+        status = "Couldn't start a background job";
+        sendChangeMessage();
+    }
 }
 
 void FlayrChopProcessor::loadFile (const juce::File& file)
@@ -583,17 +634,18 @@ void FlayrChopProcessor::loadFile (const juce::File& file)
     loadCandidates (file, { file }, {});
 }
 
-// Restoring a project: the original path first, then its library copy. Network paths from the
-// project are never touched (see isNetworkPath); the user can relink to them by hand.
+// Restoring a project: the original path first, then its library copy. Paths from the project that
+// point at another machine, or hide where they point ('..', repeated separators, device names), are
+// never touched, not even checked for existence (see isSafeProjectPath); the user can relink by hand.
 void FlayrChopProcessor::restoreSample (const juce::String& path, const juce::String& libraryPath)
 {
     const bool absolute = juce::File::isAbsolutePath (path);
     const auto original = absolute ? juce::File (path) : juce::File();
     std::vector<juce::File> candidates;
-    if (absolute && ! isNetworkPath (path))
+    if (isSafeProjectPath (path))
         candidates.push_back (original);
     juce::File library;
-    if (libraryPath.isNotEmpty() && ! isNetworkPath (libraryPath) && juce::File::isAbsolutePath (libraryPath))
+    if (isSafeProjectPath (libraryPath))
         if (const juce::File f (libraryPath); f.isAChildOf (sampleLibraryFolder()))
             library = f;
     if (library != juce::File())
@@ -611,7 +663,7 @@ void FlayrChopProcessor::restoreSample (const juce::String& path, const juce::St
         // Keep everything so a relink restores the project as it was.
         missingFile = original;
         status = "Missing file: " + path;
-        if (isNetworkPath (path))
+        if (absolute && ! isSafeProjectPath (path))
             status << "  (network locations aren't opened automatically: drop the file here to relink)";
         sendChangeMessage();
         return;
@@ -648,7 +700,7 @@ void FlayrChopProcessor::loadCandidates (const juce::File& original, std::vector
         }
         if (! ok)
         {
-            const bool gone = ! isNetworkPath (original.getFullPathName()) && ! original.existsAsFile();
+            const bool gone = isSafeProjectPath (original.getFullPathName()) && ! original.existsAsFile();
             std::lock_guard<std::mutex> lock (inboxMutex);
             inbox.push_back ([this, error, original, gone, generation] {
                 if (generation != loadGeneration)
@@ -663,11 +715,14 @@ void FlayrChopProcessor::loadCandidates (const juce::File& original, std::vector
         }
 
         // A library copy, so a sandboxed host can read the sample next time too (see libraryCopyOf).
-        juce::File library = knownLibraryCopy;
+        // The project's own copy is only a hint: libraryCopyOf reuses it after checking it's a plain
+        // file with this audio (a size match alone let a replaced or linked file stand in).
+        juce::ignoreUnused (knownLibraryCopy);
+        juce::File library;
         if (isInLibrary (loaded->file)) // already somewhere hosts can read: no copy needed
-            library = loaded->file.isAChildOf (sampleLibraryFolder()) ? loaded->file : juce::File();
-        else if (! (library.existsAsFile() && library.getSize() == loaded->file.getSize()))
-            library = libraryCopyOf (loaded->file);
+            library = loaded->file.isAChildOf (sampleLibraryFolder()) && isPlainFile (loaded->file) ? loaded->file : juce::File();
+        else
+            library = libraryCopyOf (loaded->file, [this] { return cancelJob.load(); });
         loaded->cacheFile = library != juce::File() ? library : loaded->file;
 
         std::vector<StereoPtr> stems;
@@ -767,6 +822,7 @@ static bool downloadModel (const std::string& path, std::atomic<float>& progress
     dest.getParentDirectory().createDirectory();
     // A temp file of our own in the same folder (so the final move is a rename): several plug-in
     // instances can download at once, and they used to write into one shared ".part".
+    removeStalePartFiles (dest.getParentDirectory(), dest.getFileName() + ".");
     const auto tmp = dest.getSiblingFile (dest.getFileName() + "." + juce::Uuid().toString() + ".part");
     const juce::int64 expected = stems::defaultModelSize();
     int status = 0;

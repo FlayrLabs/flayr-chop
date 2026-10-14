@@ -110,6 +110,22 @@ static bool refused (const juce::File& f, juce::String& error)
     return ! ok && error.isNotEmpty() && s.original == nullptr;
 }
 
+static juce::String repeat (const juce::String& s, int n);
+
+// Runs fn on a thread with a 512 KB stack (what macOS gives secondary threads, so what a host's or a
+// std::thread's stack can be) and says whether it finished within the time.
+static bool finishesOnSmallStack (std::function<void()> fn, int timeoutMs = 20000)
+{
+    struct Small final : juce::Thread
+    {
+        explicit Small (std::function<void()> f) : juce::Thread ("small stack", 512 * 1024), body (std::move (f)) {}
+        void run() override { body(); }
+        std::function<void()> body;
+    } t (std::move (fn));
+    t.startThread();
+    return t.waitForThreadToExit (timeoutMs);
+}
+
 // Refused with a message, or loaded with every sample finite.
 static bool refusedOrFinite (const juce::File& f)
 {
@@ -229,6 +245,26 @@ static void crashFiles (const juce::File& dir)
         chop::LoadedSample s;
         CHECK (chop::loadSample (f, s, error) && s.original != nullptr && s.original->size() == silence.getNumSamples(),
                "30 s of FLAC silence (%d bytes) refused: %s", (int) f.getSize(), error.toRawUTF8());
+    }
+
+    // Found by an independent review: within the caps, a small file of compressed silence could still
+    // claim minutes at 192 kHz (a 231 KB FLAC: 20 minutes, 4-5 GB). Loads now have to fit a memory
+    // budget (half the RAM) before anything is allocated; here with the budget set to 100 MB.
+    {
+        chop::setLoadMemoryBudgetForTests (100 * 1024 * 1024);
+        juce::AudioBuffer<float> quiet (2, 192000 * 120);
+        quiet.clear();
+        const auto f = dir.getChildFile ("two-minutes-192k.flac");
+        juce::FlacAudioFormat flac;
+        {
+            std::unique_ptr<juce::OutputStream> stream = std::make_unique<juce::FileOutputStream> (f);
+            auto w = flac.createWriterFor (stream, juce::AudioFormatWriterOptions {}.withSampleRate (192000.0).withNumChannels (2).withBitsPerSample (16));
+            if (w != nullptr)
+                w->writeFromAudioSampleBuffer (quiet, 0, quiet.getNumSamples());
+        }
+        CHECK (refused (f, error), "2 minutes at 192 kHz (%d bytes) loaded within a 100 MB budget", (int) f.getSize());
+        CHECK (error.contains ("memory"), "budget refusal message: %s", error.toRawUTF8());
+        chop::setLoadMemoryBudgetForTests (0);
     }
 
     // Found by fuzzing: 32-bit float WAV data is passed through as stored, so NaN, infinities and
@@ -358,6 +394,24 @@ static void crashFiles (const juce::File& dir)
     // Found by fuzzing: JUCE's AIFF 'cate' chunk parser read three bytes per tag even when fewer were
     // left (a heap over-read; patched by cmake/PatchJuce.cmake, reported by ASan without it).
     CHECK (refusedOrFinite (fixtures.getChildFile ("aiff-cate-tag.aiff")), "aiff-cate-tag.aiff didn't load cleanly");
+
+    // Found by an independent review: 2,000 nested elements in a 16 KB WAV's iXML (or axml) chunk made
+    // JUCE's WAV reader recurse through its XML parser until the loader thread's 512 KB stack ran out
+    // (SIGBUS in the host). The reader no longer parses those chunks, JUCE's XML parser stops at 64
+    // levels for every caller, and the worker thread has an 8 MB stack.
+    for (auto* name : { "wav-ixml-deep.wav", "wav-axml-deep.wav" })
+    {
+        bool ok = false;
+        CHECK (finishesOnSmallStack ([&] { ok = refusedOrFinite (fixtures.getChildFile (name)); }), "%s overflowed or hung a 512 KB thread", name);
+        CHECK (ok, "%s didn't load cleanly", name);
+    }
+    {
+        bool parsedDeep = true;
+        CHECK (finishesOnSmallStack ([&] { parsedDeep = juce::parseXML ("<r>" + repeat ("<a>", 100000) + repeat ("</a>", 100000) + "</r>") != nullptr; }),
+               "100,000 nested XML elements overflowed a 512 KB thread");
+        CHECK (! parsedDeep, "JUCE parsed 100,000 nested elements (no depth limit)");
+        CHECK (juce::parseXML ("<r>" + repeat ("<a>", 60) + repeat ("</a>", 60) + "</r>") != nullptr, "61 levels refused");
+    }
 
     // Longer than 20 minutes at a sane rate (header only; the length check comes before any read).
     CHECK (refused (rf64Wav (dir.getChildFile ("long.wav"), 8000, 8000ULL * 8 * 1300, 64), error), "21-minute file not refused");
@@ -634,6 +688,11 @@ static void stateXml()
         juce::MemoryBlock mb;
         CHECK (! mb.fromBase64Encoding ("2000000000.AAAA") && mb.getSize() == 0, "JUCE's base64 decoder accepted a 2 GB size (%d bytes)",
                (int) mb.getSize());
+        for (auto* lie : { "99999999999999999999.AAAA", "-1.AAAA", "+5.AAAA", " 5.AAAA", "2147483648.AAAA", "1e9.AAAA" })
+        {
+            juce::MemoryBlock b;
+            CHECK (! b.fromBase64Encoding (lie) && b.getSize() == 0, "JUCE's base64 decoder accepted '%s' (%d bytes)", lie, (int) b.getSize());
+        }
         CHECK (mb.fromBase64Encoding (juce::MemoryBlock ("hello", 5).toBase64Encoding()) && mb.toString() == "hello",
                "JUCE's base64 decoder broke a real block");
     }
@@ -803,6 +862,42 @@ static void nanState (const juce::File& dir)
         p.processBlock (empty, midi);
     }
 
+    // Found by an independent review: NaN tempo and key values (a host's tempo, the manual tempo or
+    // key shift parameter) slipped through range checks (NaN fails every comparison) into the speed,
+    // the key and the stretcher's transpose (undefined behaviour there).
+    {
+        struct NanHead final : juce::AudioPlayHead
+        {
+            juce::Optional<PositionInfo> getPosition() const override
+            {
+                PositionInfo pos;
+                pos.setIsPlaying (true);
+                pos.setBpm (std::numeric_limits<double>::quiet_NaN());
+                pos.setPpqPosition (std::numeric_limits<double>::infinity());
+                return pos;
+            }
+        } head;
+        p.setPlayHead (&head);
+        juce::AudioBuffer<float> buf (2, 256);
+        juce::MidiBuffer midi;
+        p.processBlock (buf, midi);
+        CHECK (p.getHostBpm() == 0.0, "NaN host tempo stored as %f", p.getHostBpm());
+        p.setPlayHead (nullptr);
+        const auto nan = std::numeric_limits<float>::quiet_NaN();
+        p.apvts.getParameter ("tempoMode")->setValueNotifyingHost (1.0f); // Manual (the last choice)
+        p.apvts.getParameter ("tempo")->setValue (nan);
+        p.apvts.getParameter ("keyShift")->setValue (nan);
+        CHECK (std::isfinite (p.getTargetBpm()) && std::isfinite (p.getSpeed()) && p.getSpeed() >= 0.25 && p.getSpeed() <= 4.0,
+               "NaN manual tempo: target %f speed %f", p.getTargetBpm(), p.getSpeed());
+        CHECK (p.getTargetKey() >= 0 && p.getTargetKey() < 12, "NaN key shift: key %d", p.getTargetKey());
+        p.setSampleBpm (std::numeric_limits<double>::quiet_NaN());
+        CHECK (std::isfinite (p.getSampleBpm()), "setSampleBpm took NaN");
+        float peak = 0.0f;
+        CHECK (playIsFinite (p, peak), "NaN tempo/key: non-finite output");
+        p.apvts.getParameter ("tempoMode")->setValueNotifyingHost (0.0f);
+        p.apvts.getParameter ("keyShift")->setValueNotifyingHost (p.apvts.getParameter ("keyShift")->getDefaultValue());
+    }
+
     // A host (or automation) pushing NaN straight into a parameter: output stays finite.
     p.apvts.getParameter ("filter")->setValue (std::numeric_limits<float>::quiet_NaN());
     p.apvts.getParameter ("volume")->setValue (std::numeric_limits<float>::infinity());
@@ -957,6 +1052,45 @@ static void networkPaths()
     }
     for (auto* path : { "/Users/me/Music/loop.wav", "C:\\Music\\loop.wav", "/Volumes/Drive/loop.wav", "/network-music/loop.wav" })
         CHECK (! chop::isNetworkPath (path), "local path taken for a network one: %s", path);
+
+    // Found by an independent review: juce::File folds '.', '..' and repeated separators, so paths that
+    // didn't look remote opened network locations anyway ("C:\..\\\host\share" is \\host\share on
+    // Windows, "/tmp/../net/host" is /net/host), and '..' walked a libraryPath out of the library.
+    // None of these is ever opened or even checked; the restore reports them missing.
+    for (auto* path : { "C:\\..\\\\\\attacker\\share\\a.wav", "C:/..///attacker/share/a.wav", "\\..\\\\\\attacker\\share\\a.wav",
+                        "C:\\Users\\x\\Music\\..\\..\\..\\\\\\attacker\\s\\a.wav", "/tmp/../net/host/share/a.wav", "/./net/host/a.wav",
+                        "/tmp/../Network/Servers/host/a.wav", "~/..///host/share/a.wav", "/x/..///host/share/a.wav",
+                        "/System/Volumes/Data/Network/Servers/h/a.wav", "/Users/me//Music/a.wav", "/Users/me/Music/./a.wav",
+                        "/Users/me/Music/Flayr Chop/Samples/../../../.ssh/id_rsa", "/Users/me/Music/.../a.wav", "C:\\Music\\CON.wav",
+                        "/x/nul.wav", "C:\\Music\\COM1", "/Users/me/Music/a.wav/.." })
+    {
+        CHECK (! chop::isSafeProjectPath (path), "unsafe project path accepted: %s", path);
+        FlayrChopProcessor p;
+        juce::ValueTree root ("FlayrChop");
+        juce::ValueTree s ("Sample");
+        s.setProperty ("path", path, nullptr);
+        s.setProperty ("libraryPath", path, nullptr);
+        root.appendChild (s, nullptr);
+        juce::MemoryBlock mb;
+        juce::AudioProcessor::copyXmlToBinary (*root.createXml(), mb);
+        p.setStateInformation (mb.getData(), (int) mb.getSize());
+        CHECK (p.getBusy() == FlayrChopProcessor::Busy::None && ! p.hasSample(), "%s: a load was started", path);
+    }
+    for (auto* path : { "/Users/me/Music/My Song.wav", "/Volumes/Drive/loop.wav", "/x/.hidden.wav", "/x/a..b.wav", "/x/console.wav",
+                        "/x/COM10.wav" })
+        CHECK (chop::isSafeProjectPath (path) || ! juce::File::isAbsolutePath (path), "safe project path refused: %s", path);
+#if ! JUCE_WINDOWS
+    {
+        // A project pointing at a FIFO named like audio: refused at once instead of blocking the worker.
+        const auto fifo = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("flayr-chop-fifo.wav");
+        fifo.deleteFile();
+        ::mkfifo (fifo.getFullPathName().toRawUTF8(), 0600);
+        bool ok = false;
+        CHECK (finishesOnSmallStack ([&] { ok = refusedOrFinite (fifo); }, 5000), "opening a FIFO blocked the loader");
+        CHECK (ok, "FIFO not refused cleanly");
+        fifo.deleteFile();
+    }
+#endif
 }
 
 // The library copy (fix for sandboxed hosts): a project whose original can't be read loads from it.
@@ -1004,6 +1138,39 @@ static void libraryCopies (const juce::File& dir)
         const auto twin = dir.getChildFile ("twin.wav");
         original.copyFileTo (twin);
         CHECK (chop::libraryCopyOf (twin) == copy, "library: same audio, second copy");
+
+#if ! JUCE_WINDOWS
+        // Found by an independent review: a link to a link resolved one level, and the clone (which
+        // never follows links) then copied the second link: the library "copy" pointed back at the
+        // original. Links are resolved all the way and the copy is always a plain file.
+        {
+            const auto other = noiseWav (dir.getChildFile ("linked/other.wav"), 1.0);
+            const auto link1 = dir.getChildFile ("linked/link1.wav"), link2 = dir.getChildFile ("linked/link2.wav");
+            other.createSymbolicLink (link1, true);
+            link1.createSymbolicLink (link2, true);
+            const auto c = chop::libraryCopyOf (link2);
+            CHECK (c.existsAsFile() && chop::isPlainFile (c) && c.getSize() == other.getSize(), "library: copy through two links isn't a plain file");
+            // A link planted where a copy should be (same name, same size elsewhere) is replaced, not reused.
+            const auto decoy = dir.getChildFile ("linked/decoy.wav");
+            noiseWav (decoy, 1.0);
+            c.deleteFile();
+            decoy.createSymbolicLink (c, true);
+            const auto c2 = chop::libraryCopyOf (other);
+            CHECK (c2 == c && chop::isPlainFile (c2) && juce::SHA256 (c2).toHexString() == juce::SHA256 (other).toHexString(),
+                   "library: a planted link was reused as the copy");
+            // A copy whose contents changed is replaced too.
+            {
+                juce::MemoryBlock bytes;
+                other.loadFileAsData (bytes);
+                static_cast<char*> (bytes.getData())[bytes.getSize() / 2] ^= 0x55; // same size, other audio
+                c2.replaceWithData (bytes.getData(), bytes.getSize());
+            }
+            const auto c3 = chop::libraryCopyOf (other);
+            CHECK (c3 == c && juce::SHA256 (c3).toHexString() == juce::SHA256 (other).toHexString(), "library: a changed copy was reused");
+            // Cancelled: nothing returned.
+            CHECK (chop::libraryCopyOf (other, [] { return true; }) == juce::File(), "library: cancelled copy returned a file");
+        }
+#endif
     }
     {
         // The original exists but can't be read (what Logic's AU sandbox does to ~/Music/Logic and

@@ -1,5 +1,8 @@
 #include "Renderer.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include <signalsmith-stretch/signalsmith-stretch.h>
 
 namespace chop
@@ -10,6 +13,11 @@ using Stretch = signalsmith::stretch::SignalsmithStretch<float>;
 
 void configure (Stretch& s, double sampleRate, float semis, bool formant)
 {
+    // Every caller clamps already; this is the last stop before the stretcher, which turns the
+    // transpose into integer bin offsets (a NaN or huge value there is undefined behaviour).
+    if (! std::isfinite (semis))
+        semis = 0.0f;
+    semis = std::clamp (semis, -48.0f, 48.0f);
     s.presetDefault (2, (float) sampleRate);
     // Above ~8 kHz content is treated as noise, which keeps hats and transients crisp when shifting up.
     s.setTransposeSemitones (semis, (float) (8000.0 / sampleRate));
