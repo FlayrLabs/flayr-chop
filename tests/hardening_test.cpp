@@ -7,7 +7,9 @@
 
 #include <cstdio>
 #include <thread>
+#if ! defined (_WIN32)
 #include <sys/stat.h>
+#endif
 
 static int failures = 0, checks = 0;
 #define CHECK(cond, ...)                                    \
@@ -611,7 +613,14 @@ static void libraryCopies (const juce::File& dir)
         // The original exists but can't be read (what Logic's AU sandbox does to ~/Music/Logic and
         // ~/Downloads): the project loads from the library copy and still saves the original path.
         original.setReadOnly (true);
+#if ! JUCE_WINDOWS
         ::chmod (original.getFullPathName().toRawUTF8(), 0);
+#endif
+        if (juce::FileInputStream (original).openedOk()) // Windows, or running as root: make it unloadable instead
+        {
+            original.setReadOnly (false);
+            original.replaceWithText ("not audio any more");
+        }
         FlayrChopProcessor p;
         p.setStateInformation (saved.getData(), (int) saved.getSize());
         CHECK (waitLoaded (p), "unreadable original: library copy not used (status '%s')", p.getStatus().toRawUTF8());
@@ -619,7 +628,9 @@ static void libraryCopies (const juce::File& dir)
         const auto s = sampleIn (stateFrom (p, false));
         CHECK (s.getProperty ("path").toString() == original.getFullPathName(), "unreadable original: path changed");
         CHECK (s.getProperty ("libraryPath").toString() == copy.getFullPathName(), "unreadable original: libraryPath lost");
+#if ! JUCE_WINDOWS
         ::chmod (original.getFullPathName().toRawUTF8(), 0644);
+#endif
     }
     {
         // A libraryPath outside the library folder is ignored (a project can't point the loader anywhere).
