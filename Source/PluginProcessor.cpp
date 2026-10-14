@@ -554,11 +554,11 @@ void FlayrChopProcessor::runJob (std::function<void()> job)
     cancelJob = false;
     // An exception escaping a thread would std::terminate the host (and the user's whole session),
     // so every job ends here: whatever went wrong becomes a status message.
-    worker = std::thread ([this, job = std::move (job)] {
+    worker = std::thread ([this, body = std::move (job)] {
         juce::String error;
         try
         {
-            job();
+            body();
             return;
         }
         catch (const std::bad_alloc&)
