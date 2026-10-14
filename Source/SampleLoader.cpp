@@ -3,6 +3,8 @@
 
 #include <juce_cryptography/juce_cryptography.h>
 
+#include <optional>
+
 #if JUCE_MAC
 #include <copyfile.h>
 #endif
@@ -50,6 +52,41 @@ bool hasFlacContent (const juce::File& file)
     return std::memcmp (head, "fLaC", 4) == 0;
 }
 
+#if JUCE_MAC
+// Ogg data reaches Core Audio (it reads .ogg files JUCE's Vorbis reader refuses, and .opus), whose
+// comment parser reserves memory for the comment count the file states: fuzzing found a 4.5 KB file
+// asking for 31 GB. Only Vorbis or Opus streams whose count fits in the file are handed over.
+bool oggCommentsPlausible (const juce::File& file)
+{
+    juce::MemoryBlock head;
+    {
+        juce::FileInputStream in (file);
+        if (! in.openedOk())
+            return false;
+        in.readIntoMemoryBlock (head, 64 * 1024); // the comment header is in the first pages
+    }
+    const auto* data = static_cast<const char*> (head.getData());
+    const auto size = (juce::int64) head.getSize();
+    auto find = [&] (const char* marker, juce::int64 len) -> juce::int64 {
+        for (juce::int64 i = 0; i + len <= size; ++i)
+            if (std::memcmp (data + i, marker, (size_t) len) == 0)
+                return i + len;
+        return -1;
+    };
+    auto pos = find ("\x03vorbis", 7);
+    if (pos < 0)
+        pos = find ("OpusTags", 8);
+    auto le32 = [&] (juce::int64 at) { return (juce::int64) juce::ByteOrder::littleEndianInt (data + at); };
+    if (pos < 0 || pos + 4 > size)
+        return false;
+    pos += 4 + le32 (pos); // vendor string
+    if (pos + 4 > size)
+        return false;
+    // Each comment takes at least its 4-byte length.
+    return le32 (pos) <= (file.getSize() - pos - 4) / 4;
+}
+#endif
+
 // Like AudioFormatManager::createReaderFor (every format that claims the file's extension, in
 // registration order), except that FLAC is only ever read by libFLAC: a .flac, or a FLAC stream under
 // any other name (which libFLAC then reads instead), is never handed to the operating system's
@@ -61,11 +98,28 @@ std::unique_ptr<juce::AudioFormatReader> createReader (const juce::File& file)
 {
     const bool flacContent = hasFlacContent (file);
     const bool flacOnly = flacContent || file.hasFileExtension ("flac");
+#if JUCE_MAC
+    std::optional<bool> systemDecoderOk; // worked out only if Core Audio's turn comes
+#endif
     for (auto* format : formats())
     {
         const bool isFlac = dynamic_cast<juce::FlacAudioFormat*> (format) != nullptr;
         if (flacOnly ? ! isFlac : ! format->canHandleFile (file))
             continue;
+#if JUCE_MAC
+        if (dynamic_cast<juce::CoreAudioFormat*> (format) != nullptr)
+        {
+            if (! systemDecoderOk.has_value())
+            {
+                juce::FileInputStream in (file);
+                char magic[4] = {};
+                const bool ogg = in.openedOk() && in.read (magic, 4) == 4 && std::memcmp (magic, "OggS", 4) == 0;
+                systemDecoderOk = ! ogg || oggCommentsPlausible (file);
+            }
+            if (! *systemDecoderOk)
+                continue;
+        }
+#endif
         if (auto in = file.createInputStream())
             if (auto* reader = format->createReaderFor (in.release(), true))
                 return std::unique_ptr<juce::AudioFormatReader> (reader);

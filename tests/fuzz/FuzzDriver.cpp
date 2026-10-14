@@ -36,6 +36,7 @@
 #include <vector>
 
 #include <dirent.h>
+#include <time.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #if defined(__APPLE__)
@@ -261,9 +262,18 @@ std::atomic<bool> running { false };
 std::atomic<long long> runStartedMs { 0 };
 std::atomic<bool> dumping { false };
 
+// Time the machine was awake: a laptop going to sleep mid-run must not look like a hung input.
 long long nowMs()
 {
-    return std::chrono::duration_cast<std::chrono::milliseconds> (std::chrono::steady_clock::now().time_since_epoch()).count();
+#if defined(__APPLE__)
+    timespec ts {};
+    clock_gettime (CLOCK_UPTIME_RAW, &ts);
+    return (long long) ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+#else
+    timespec ts {};
+    clock_gettime (CLOCK_MONOTONIC, &ts); // Linux: stops while suspended
+    return (long long) ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+#endif
 }
 
 void dumpCurrent (const char* kind)

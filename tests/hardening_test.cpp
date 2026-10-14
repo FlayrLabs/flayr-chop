@@ -350,6 +350,11 @@ static void crashFiles (const juce::File& dir)
         CHECK (! ok || (s.fileRate >= 8000.0 && s.fileRate <= 768000.0), "loaded at an unchecked rate: %f", s.fileRate);
     }
 
+    // Found by fuzzing (macOS): the same Core Audio comment parser behind Ogg (an .ogg JUCE's Vorbis
+    // reader refused): the comment count in the file sized a 31 GB reservation. Ogg goes to Core Audio
+    // only when its comment count fits in the file (real Opus/Vorbis files still load there).
+    CHECK (refusedOrFinite (fixtures.getChildFile ("ogg-comment-count.ogg")), "ogg-comment-count.ogg didn't load cleanly");
+
     // Longer than 20 minutes at a sane rate (header only; the length check comes before any read).
     CHECK (refused (rf64Wav (dir.getChildFile ("long.wav"), 8000, 8000ULL * 8 * 1300, 64), error), "21-minute file not refused");
 
