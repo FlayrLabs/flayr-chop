@@ -375,12 +375,12 @@ bool Renderer::renderMain (const RenderSettings& s, uint64_t ticket)
     };
 
     // Tape mode, or nothing to do: play the source as is.
-    if (! s.pitchAndTime || (std::abs (s.speed - 1.0) < 1e-6 && std::abs (s.semis) < 1e-4f))
+    if (! s.hqStretch || (std::abs (s.speed - 1.0) < 1e-6 && std::abs (s.semis) < 1e-4f))
     {
         auto r = base();
         r->stretched = false;
         r->positionsPerSecond = sr;
-        r->rate = s.pitchAndTime ? 1.0 : s.speed * std::pow (2.0, s.semis / 12.0);
+        r->rate = s.hqStretch ? 1.0 : s.speed * std::pow (2.0, s.semis / 12.0);
         r->full = src.full;
         r->stems = src.stems;
         renderedOut.publish (std::move (r));

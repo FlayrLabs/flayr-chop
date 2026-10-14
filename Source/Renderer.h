@@ -29,13 +29,13 @@ struct RenderSettings
     SourcePtr source;
     double speed = 1.0;        // tempo factor: 1.1 plays 10% faster
     float semis = 0.0f;        // key shift
-    bool pitchAndTime = true;  // false = tape (speed and pitch move together, no processing)
+    bool hqStretch = true;  // false = tape (speed and pitch move together, no processing)
     bool formant = false;      // keep formants when shifting key
 
     bool sameAs (const RenderSettings& o) const
     {
         return source == o.source && std::abs (speed - o.speed) < 1e-6 && std::abs (semis - o.semis) < 1e-4f
-               && pitchAndTime == o.pitchAndTime && formant == o.formant;
+               && hqStretch == o.hqStretch && formant == o.formant;
     }
 };
 

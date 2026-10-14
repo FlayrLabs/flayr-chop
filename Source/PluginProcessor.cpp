@@ -517,7 +517,7 @@ RenderSettings FlayrChopProcessor::currentRenderSettings() const
     s.source = source;
     s.speed = getSpeed();
     s.semis = (float) apvts.getRawParameterValue ("keyShift")->load();
-    s.pitchAndTime = apvts.getRawParameterValue ("stretch")->load() > 0.5f;
+    s.hqStretch = apvts.getRawParameterValue ("stretch")->load() > 0.5f;
     s.formant = apvts.getRawParameterValue ("formant")->load() > 0.5f;
     return s;
 }

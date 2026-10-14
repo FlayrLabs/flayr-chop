@@ -44,7 +44,7 @@ Audio quality bugs and crashes that need no untrusted input are regular bugs: pl
 - **Files it writes:** the stem model and a per-track stem cache in your user application data
   folder (`~/Library/Application Support/Flayr Chop` on macOS, `%APPDATA%\Flayr Chop` on
   Windows, `~/.local/share/Flayr Chop` on Linux); WAV files you export; and slices you drag out
-  of the plug-in, written to your temporary folder. Deleting the Flayr Chop folder is always safe.
+  of the plug-in, saved in `Music/Flayr Chop/Slices`. Deleting the Flayr Chop folder is always safe.
 - **No elevated privileges.** The plug-in runs with your DAW's permissions. The installers only copy the plug-in into the standard plug-in folders.
 - Saved state from a project is size-limited, and every value is range-checked before use.
 

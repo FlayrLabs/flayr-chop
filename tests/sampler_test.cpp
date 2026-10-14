@@ -156,7 +156,7 @@ static void testRendererPublishes()
     }
 
     // Tape mode: no processing, speed and pitch move together.
-    s.pitchAndTime = false;
+    s.hqStretch = false;
     r.request (s);
     while (r.busy)
         std::this_thread::sleep_for (std::chrono::milliseconds (5));
