@@ -434,6 +434,110 @@ static juce::String nested (int levels) // <a><a>...</a></a>
     return repeat ("<a>", levels) + repeat ("</a>", levels);
 }
 
+// Differential check: whatever parseState accepts must be, as JUCE parsed it and as
+// ValueTree::fromXml turns it into a tree, within the limits (depth, elements, attributes, no binary
+// "base64:" properties). Returns false (and says why) on any disagreement in the unsafe direction.
+static bool acceptedOnlyWithinLimits (const juce::MemoryBlock& mb, const char* what)
+{
+    const auto xml = FlayrChopProcessor::parseState (mb.getData(), (int) mb.getSize());
+    if (xml == nullptr)
+        return true; // refused: nothing reaches JUCE's tree code
+    int elements = 0, attributes = 0, maxDepth = 0;
+    std::vector<std::pair<const juce::XmlElement*, int>> stack { { xml.get(), 1 } };
+    while (! stack.empty())
+    {
+        const auto [e, depth] = stack.back();
+        stack.pop_back();
+        ++elements;
+        maxDepth = juce::jmax (maxDepth, depth);
+        attributes += e->getNumAttributes();
+        for (int i = 0; i < e->getNumAttributes(); ++i)
+            if (e->getAttributeName (i).containsChar (':'))
+            {
+                std::printf ("  %s: accepted an attribute named '%s'\n", what, e->getAttributeName (i).toRawUTF8());
+                return false;
+            }
+        for (const auto* c : e->getChildIterator())
+            stack.push_back ({ c, depth + 1 });
+    }
+    if (elements > FlayrChopProcessor::kMaxStateElements || maxDepth > FlayrChopProcessor::kMaxStateDepth
+        || attributes > FlayrChopProcessor::kMaxStateAttributes)
+    {
+        std::printf ("  %s: accepted %d elements, depth %d, %d attributes\n", what, elements, maxDepth, attributes);
+        return false;
+    }
+    const auto tree = juce::ValueTree::fromXml (*xml);
+    std::vector<juce::ValueTree> trees { tree };
+    while (! trees.empty())
+    {
+        const auto t = trees.back();
+        trees.pop_back();
+        for (int i = 0; i < t.getNumProperties(); ++i)
+            if (t.getProperty (t.getPropertyName (i)).isBinaryData())
+            {
+                std::printf ("  %s: accepted a binary property\n", what);
+                return false;
+            }
+        for (const auto& c : t)
+            trees.push_back (c);
+    }
+    return true;
+}
+
+static void stateDifferential()
+{
+    const juce::String decl ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+    juce::StringArray texts;
+    // Entities in every spelling, including ones that decode to '<', '&', ':' and NUL.
+    for (auto* e : { "&amp;", "&AMP;", "&Amp;", "&lt;", "&LT;", "&#60;", "&#x3C;", "&#X3c;", "&#0000060;", "&#58;", "&#x3a;",
+                     "&#0;", "&#x0;", "&#xFFFFFFFF;", "&#99999999999;", "&#x110000;", "&#xD800;", "&unknown;", "&;", "&#;", "&#x;" })
+    {
+        texts.add ("<FlayrChop x=\"" + juce::String (e) + "\"/>");
+        texts.add ("<FlayrChop>" + juce::String (e) + "<Sample/>" + juce::String (e) + "</FlayrChop>");
+        texts.add ("<FlayrChop " + juce::String (e) + "=\"1\"/>");
+    }
+    // Attribute names with ':' and base64 in every position JUCE accepts a name.
+    for (auto* a : { " base64:x=\"9.AAAA\"", "\tbase64:x=\"9.AAAA\"", "\nbase64:x=\"9.AAAA\"", "\rbase64:x=\"9.AAAA\"",
+                     " x=\"1\"base64:y=\"9.AAAA\"", " x='1'base64:y='9.AAAA'", " BASE64:x=\"9.AAAA\"", " a:b=\"1\"",
+                     " :x=\"1\"", " base64=\"1\"", " x=\"base64:9.AAAA\"" })
+    {
+        texts.add ("<FlayrChop" + juce::String (a) + "/>");
+        texts.add ("<FlayrChop><Sample path=\"/x.wav\"" + juce::String (a) + "><Pad index=\"0\"" + juce::String (a) + "/></Sample></FlayrChop>");
+    }
+    // Whitespace, CR/LF/tab in names and around the declaration; nesting hidden in values.
+    for (const auto& t : { decl + "<FlayrChop/>", " " + decl + "<FlayrChop/>", "\n" + decl + "<FlayrChop/>", decl + "\r\n<FlayrChop/>",
+                           juce::String ("<Flayr\tChop/>"), juce::String ("<FlayrChop\r\nx=\"1\"\r\n/>"), juce::String ("<FlayrChop x\n=\n\"1\"/>"),
+                           "<r x=\"" + repeat ("<a>", 600) + "\"/>", "<r>" + nested (9) + "</r>", "<r>" + nested (7) + "</r>",
+                           "<r>" + repeat ("<a>t</a>", 300) + "</r>", "<r>" + nested (7).replace ("<a></a>", "<a>text</a>") + "</r>",
+                           juce::String ("<r a=\"1\" a=\"2\" a=\"3\"/>"), juce::String ("<r x=\"1\"y=\"2\"/>"), juce::String ("<r x=1/>") })
+        texts.add (t);
+    for (const auto& t : texts)
+        CHECK (acceptedOnlyWithinLimits (blob (t), t.substring (0, 60).toRawUTF8()), "differential: %s", t.substring (0, 80).toRawUTF8());
+
+    // Raw bytes: BOMs, overlong and invalid UTF-8, NULs inside the declared length, a length shorter
+    // or longer than the text, text after the declared length.
+    const char* raws[] = { "\xef\xbb\xbf<FlayrChop/>", "\xfe\xff<FlayrChop/>", "<FlayrChop x=\"\xc0\xbc\"/>", "<FlayrChop x=\"\xc0\xba\"/>",
+                           "<FlayrChop x=\"\xed\xa0\x80\"/>", "<FlayrChop x=\"\xf4\x90\x80\x80\"/>", "<FlayrChop x=\"\xe2\x80\"/>",
+                           "<FlayrChop \xc0\xa0" "base64:x=\"9.AAAA\"/>", "<FlayrChop x=\"1\"\xc2\xa0" "base64:y=\"9.AAAA\"/>" };
+    for (auto* r : raws)
+    {
+        const auto len = std::strlen (r);
+        CHECK (acceptedOnlyWithinLimits (rawBlob (r, len), r), "differential (raw): %s", r);
+        for (const juce::int64 declared : { (juce::int64) len - 3, (juce::int64) len + 1, (juce::int64) len + 100 })
+            if (declared > 0)
+                CHECK (acceptedOnlyWithinLimits (rawBlob (r, len, declared), r), "differential (raw, length %d): %s", (int) declared, r);
+    }
+    {
+        juce::MemoryOutputStream withNul;
+        withNul << "<FlayrChop/>";
+        withNul.writeByte (0);
+        withNul << "<x base64:y=\"9.AAAA\"/>";
+        CHECK (acceptedOnlyWithinLimits (rawBlob (withNul.getData(), withNul.getDataSize()), "NUL inside"), "differential: NUL inside the length");
+        const juce::String past = "<FlayrChop/>" + nested (100);
+        CHECK (acceptedOnlyWithinLimits (rawBlob (past.toRawUTF8(), past.getNumBytesAsUTF8(), 12), "past"), "differential: text past the length");
+    }
+}
+
 static void stateXml()
 {
     const juce::String decl ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
@@ -994,6 +1098,8 @@ int main()
     crashFiles (dir);
     std::printf ("-- stateXml\n");
     stateXml();
+    std::printf ("-- stateDifferential\n");
+    stateDifferential();
     std::printf ("-- stateRoundTrip\n");
     stateRoundTrip (dir);
     std::printf ("-- nanState\n");

@@ -1564,13 +1564,21 @@ std::unique_ptr<juce::XmlElement> FlayrChopProcessor::parseState (const void* da
     auto xml = juce::parseXML (xmlText);
     if (xml == nullptr)
         return {};
+    // The limits again on the tree JUCE actually built (the pre-scan above only has to keep the parse
+    // itself cheap; this is what ValueTree::fromXml, which recurses, will see): depth, element and
+    // attribute counts, and no attribute name with ':' (fromXml decodes "base64:..." names as binary,
+    // sized by the value; JUCE reads a name straight after a closing quote, with no space before it).
+    int numElements = 0, numAttributes = 0;
     std::vector<std::pair<const juce::XmlElement*, int>> stack { { xml.get(), 1 } };
     while (! stack.empty())
     {
         const auto [e, depth] = stack.back();
         stack.pop_back();
-        if (depth > kMaxStateDepth)
+        if (depth > kMaxStateDepth || ++numElements > kMaxStateElements)
             return {};
+        for (int i = 0; i < e->getNumAttributes(); ++i)
+            if (++numAttributes > kMaxStateAttributes || e->getAttributeName (i).containsChar (':'))
+                return {};
         for (const auto* child : e->getChildIterator())
             stack.push_back ({ child, depth + 1 });
     }
