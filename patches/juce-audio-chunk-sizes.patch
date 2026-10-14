@@ -1,0 +1,64 @@
+Flayr Chop patch for JUCE 8.0.16-security (ea77444750de45e036e0279bb0291144bf8e3688).
+
+WAV and AIFF metadata chunks (bext, smpl, inst, cue; AIFF INST): the readers
+allocated and zeroed whatever size the chunk header claimed before reading it, up
+to 4 GB for a 100-byte file, and where that allocation fails the null buffer is
+then used. The size is now limited to what is left in the file. Found by Flayr
+Chop's fuzzing.
+
+Applied by CMakeLists.txt via FetchContent PATCH_COMMAND (cmake/ApplyPatch.cmake).
+
+Flayr-Patch-Marker: modules/juce_audio_formats/codecs/juce_WavAudioFormat.cpp Flayr Chop: BWAVChunk size
+Flayr-Patch-Marker: modules/juce_audio_formats/codecs/juce_WavAudioFormat.cpp Flayr Chop: SMPLChunk size
+Flayr-Patch-Marker: modules/juce_audio_formats/codecs/juce_WavAudioFormat.cpp Flayr Chop: InstChunk size
+Flayr-Patch-Marker: modules/juce_audio_formats/codecs/juce_WavAudioFormat.cpp Flayr Chop: CueChunk size
+Flayr-Patch-Marker: modules/juce_audio_formats/codecs/juce_AiffAudioFormat.cpp Flayr Chop: InstChunk size
+
+diff --git a/modules/juce_audio_formats/codecs/juce_AiffAudioFormat.cpp b/modules/juce_audio_formats/codecs/juce_AiffAudioFormat.cpp
+index 38ac383bec..3b9e32c920 100644
+--- a/modules/juce_audio_formats/codecs/juce_AiffAudioFormat.cpp
++++ b/modules/juce_audio_formats/codecs/juce_AiffAudioFormat.cpp
+@@ -549,6 +549,7 @@ public:
+                     }
+                     else if (type == chunkName ("INST"))
+                     {
++                        length = (uint32) jmin ((int64) length, jmax ((int64) 0, input->getTotalLength() - input->getPosition())); // Flayr Chop: InstChunk size within the file
+                         HeapBlock<InstChunk> inst;
+                         inst.calloc (jmax ((size_t) length + 1, sizeof (InstChunk)), 1);
+                         input->read (inst, (int) length);
+diff --git a/modules/juce_audio_formats/codecs/juce_WavAudioFormat.cpp b/modules/juce_audio_formats/codecs/juce_WavAudioFormat.cpp
+index ce472b5681..ce42111327 100644
+--- a/modules/juce_audio_formats/codecs/juce_WavAudioFormat.cpp
++++ b/modules/juce_audio_formats/codecs/juce_WavAudioFormat.cpp
+@@ -1350,6 +1350,7 @@ public:
+                     bwavChunkStart = input->getPosition();
+                     bwavSize = length;
+ 
++                    length = (uint32) jmin ((int64) length, jmax ((int64) 0, input->getTotalLength() - input->getPosition())); // Flayr Chop: BWAVChunk size within the file
+                     HeapBlock<BWAVChunk> bwav;
+                     bwav.calloc (jmax ((size_t) length + 1, sizeof (BWAVChunk)), 1);
+                     input->read (bwav, (int) length);
+@@ -1357,6 +1358,7 @@ public:
+                 }
+                 else if (chunkType == chunkName ("smpl"))
+                 {
++                    length = (uint32) jmin ((int64) length, jmax ((int64) 0, input->getTotalLength() - input->getPosition())); // Flayr Chop: SMPLChunk size within the file
+                     HeapBlock<SMPLChunk> smpl;
+                     smpl.calloc (jmax ((size_t) length + 1, sizeof (SMPLChunk)), 1);
+                     input->read (smpl, (int) length);
+@@ -1364,6 +1366,7 @@ public:
+                 }
+                 else if (chunkType == chunkName ("inst") || chunkType == chunkName ("INST")) // need to check which...
+                 {
++                    length = (uint32) jmin ((int64) length, jmax ((int64) 0, input->getTotalLength() - input->getPosition())); // Flayr Chop: InstChunk size within the file
+                     HeapBlock<InstChunk> inst;
+                     inst.calloc (jmax ((size_t) length + 1, sizeof (InstChunk)), 1);
+                     input->read (inst, (int) length);
+@@ -1371,6 +1374,7 @@ public:
+                 }
+                 else if (chunkType == chunkName ("cue "))
+                 {
++                    length = (uint32) jmin ((int64) length, jmax ((int64) 0, input->getTotalLength() - input->getPosition())); // Flayr Chop: CueChunk size within the file
+                     HeapBlock<CueChunk> cue;
+                     cue.calloc (jmax ((size_t) length + 1, sizeof (CueChunk)), 1);
+                     input->read (cue, (int) length);

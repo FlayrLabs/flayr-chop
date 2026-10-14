@@ -15,13 +15,42 @@ option(FLAYR_CHOP_TEST_HOOKS "Local UI testing only: FLAYR_CHOP_AUTOLOAD env var
 option(FLAYR_CHOP_BUILD_FUZZERS "Build the fuzz targets in tests/fuzz (ASan + UBSan; a separate non-release build only)" OFF)
 
 include(FetchContent)
+# Our patches to JUCE (patches/*.patch; the header of each explains it), applied in this order by
+# cmake/ApplyPatch.cmake. The first six are the same files Flayr Tune ships, so both plug-ins carry
+# identical fixes to JUCE's shared code; the rest fix JUCE's audio file readers, which only Flayr
+# Chop uses.
+#  xml-entity-overread: a heap over-read in the XML parser.
+#  xml-depth-limit: the XML parser fails beyond 64 nesting levels instead of recursing on.
+#  double-exponent-overflow: an int overflow parsing numbers like 1e99999999999.
+#  vst3-private-state: the VST3 wrapper's own state trailer (wild read, stack overflow).
+#  wrapper-state-checks: unchecked types and sizes in the AU and LV2 state paths.
+#  base64-declared-size: base64 decoding allocated whatever size the text claimed.
+#  mp3-intensity-stereo: an out-of-bounds write in the MP3 decoder.
+#  caf-metadata-loops: endless loops in the CAF metadata reader (macOS).
+#  audio-chunk-sizes: WAV/AIFF metadata chunks allocated whatever size their header claimed.
+#  aiff-cate-overread: a heap over-read in the AIFF 'cate' chunk reader.
+#  wav-no-xml-metadata: WAV iXML/axml metadata is never parsed.
+set(FLAYR_JUCE_PATCHES)
+foreach(name xml-entity-overread xml-depth-limit double-exponent-overflow vst3-private-state wrapper-state-checks
+             base64-declared-size mp3-intensity-stereo caf-metadata-loops audio-chunk-sizes aiff-cate-overread
+             wav-no-xml-metadata)
+    list(APPEND FLAYR_JUCE_PATCHES ${CMAKE_CURRENT_SOURCE_DIR}/patches/juce-${name}.patch)
+endforeach()
+# The patch contents are part of the patch command, so editing a patch re-runs the step.
+set(flayr_patch_hashes "")
+foreach(patch IN LISTS FLAYR_JUCE_PATCHES)
+    file(SHA256 "${patch}" hash)
+    string(APPEND flayr_patch_hashes "${hash}")
+endforeach()
+string(SHA256 FLAYR_JUCE_PATCH_SET "${flayr_patch_hashes}")
+string(REPLACE ";" "|" FLAYR_JUCE_PATCHES "${FLAYR_JUCE_PATCHES}") # survives PATCH_COMMAND
 # Dependencies are pinned to exact commits (a tag can be moved; a commit hash can't). When bumping,
 # check the new hash with `git ls-remote <repo> refs/tags/<tag>` (the ^{} line for annotated tags).
 FetchContent_Declare(JUCE
     GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
     GIT_TAG ea77444750de45e036e0279bb0291144bf8e3688 # 8.0.16-security (8.0.15 + a juce::String fix for malformed UTF-8)
-    # Security fixes to JUCE's own sources (audio readers, XML, base64, VST3 wrapper state); see the script.
-    PATCH_COMMAND ${CMAKE_COMMAND} -DJUCE_DIR=<SOURCE_DIR> -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/PatchJuce.cmake
+    PATCH_COMMAND ${CMAKE_COMMAND} "-DPATCHES=${FLAYR_JUCE_PATCHES}" -DPATCH_SET=${FLAYR_JUCE_PATCH_SET}
+                  -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/ApplyPatch.cmake
 )
 # HQ Stretch engine (MIT), and the linear-algebra library it uses, declared here first so the
 # version stretch would fetch by tag is pinned by commit too (stretch 1.4.0 asks for 0.6.4).
@@ -35,36 +64,15 @@ FetchContent_Declare(signalsmith-stretch
 )
 FetchContent_MakeAvailable(JUCE signalsmith-linear signalsmith-stretch)
 
-# A JUCE checkout given with FETCHCONTENT_SOURCE_DIR_JUCE skips the patch step: refuse to build the
-# plug-in with an unpatched decoder (run cmake/PatchJuce.cmake on that checkout first).
-foreach(_patch "codecs/juce_MP3AudioFormat.cpp|Flayr Chop: maxBandl"
-               "codecs/juce_CoreAudioFormat.cpp|Flayr Chop: negative chunk size"
-               "codecs/juce_CoreAudioFormat.cpp|Flayr Chop: info entries"
-               "codecs/juce_CoreAudioFormat.cpp|Flayr Chop: uuid entries"
-               "../juce_core/xml/juce_XmlDocument.cpp|Flayr Chop: hex entity at the end"
-               "codecs/juce_WavAudioFormat.cpp|Flayr Chop: BWAVChunk size"
-               "codecs/juce_WavAudioFormat.cpp|Flayr Chop: SMPLChunk size"
-               "codecs/juce_WavAudioFormat.cpp|Flayr Chop: InstChunk size"
-               "codecs/juce_WavAudioFormat.cpp|Flayr Chop: CueChunk size"
-               "codecs/juce_AiffAudioFormat.cpp|Flayr Chop: InstChunk size"
-               "codecs/juce_AiffAudioFormat.cpp|Flayr Chop: cate tag at the end"
-               "../juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp|Flayr Chop: private data size"
-               "../juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp|Flayr Chop: private data parse"
-               "../juce_core/memory/juce_MemoryBlock.cpp|FLAYR_PATCH juce-base64-declared-size"
-               "../juce_core/xml/juce_XmlDocument.cpp|Flayr Chop: XML depth limit"
-               "../juce_core/xml/juce_XmlDocument.cpp|Flayr Chop: entity depth limit"
-               "codecs/juce_WavAudioFormat.cpp|Flayr Chop: no iXML/axml parsing")
-    string(REPLACE "|" ";" _patch "${_patch}")
-    list(GET _patch 0 _file)
-    list(GET _patch 1 _marker)
-    file(READ "${juce_SOURCE_DIR}/modules/juce_audio_formats/${_file}" _src)
-    string(FIND "${_src}" "${_marker}" _found)
-    if(_found EQUAL -1)
-        message(FATAL_ERROR "JUCE at ${juce_SOURCE_DIR} lacks Flayr Chop's security patches (${_marker}). Run:\n"
-            "  cmake -DJUCE_DIR=${juce_SOURCE_DIR} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/PatchJuce.cmake")
-    endif()
-endforeach()
-unset(_src)
+# A JUCE tree from elsewhere (FETCHCONTENT_SOURCE_DIR_JUCE) skips PATCH_COMMAND: refuse to build
+# without the patches, checked by content (see cmake/ApplyPatch.cmake).
+execute_process(COMMAND ${CMAKE_COMMAND} "-DPATCHES=${FLAYR_JUCE_PATCHES}" -DCHECK_ONLY=ON
+                        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/ApplyPatch.cmake
+                WORKING_DIRECTORY "${juce_SOURCE_DIR}" RESULT_VARIABLE flayr_patches_missing)
+if(flayr_patches_missing)
+    message(FATAL_ERROR "JUCE at ${juce_SOURCE_DIR} is missing patches/*.patch; apply them first:\n"
+        "  cd ${juce_SOURCE_DIR} && cmake -DPATCHES=<patches, |-separated> -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/ApplyPatch.cmake")
+endif()
 
 # Third-party headers: keep their warnings out of ours.
 foreach(lib signalsmith-stretch signalsmith-linear)

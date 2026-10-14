@@ -1,0 +1,37 @@
+Flayr Chop patch for JUCE 8.0.16-security (ea77444750de45e036e0279bb0291144bf8e3688).
+
+WAV reader: the iXML and axml chunks (free-form XML metadata Flayr Chop never
+uses) are no longer parsed, so an audio file never feeds JUCE's XML parser: 2,000
+nested elements in a 16 KB WAV's iXML chunk recursed until the 512 KB stack of the
+thread loading it ran out (found by an independent review). The XML depth limit
+(juce-xml-depth-limit.patch) stops that too; this removes the path altogether.
+
+Applied by CMakeLists.txt via FetchContent PATCH_COMMAND (cmake/ApplyPatch.cmake).
+
+Flayr-Patch-Marker: modules/juce_audio_formats/codecs/juce_WavAudioFormat.cpp Flayr Chop: no iXML/axml parsing
+
+diff --git a/modules/juce_audio_formats/codecs/juce_WavAudioFormat.cpp b/modules/juce_audio_formats/codecs/juce_WavAudioFormat.cpp
+index ce42111327..f8c76b3295 100644
+--- a/modules/juce_audio_formats/codecs/juce_WavAudioFormat.cpp
++++ b/modules/juce_audio_formats/codecs/juce_WavAudioFormat.cpp
+@@ -1380,17 +1380,10 @@ public:
+                     input->read (cue, (int) length);
+                     cue->copyTo (dict, (int) length);
+                 }
+-                else if (chunkType == chunkName ("axml"))
++                else if (chunkType == chunkName ("axml") || chunkType == chunkName ("iXML"))
+                 {
+-                    MemoryBlock axml;
+-                    input->readIntoMemoryBlock (axml, (ssize_t) length);
+-                    AXMLChunk::addToMetadata (dict, axml.toString());
+-                }
+-                else if (chunkType == chunkName ("iXML"))
+-                {
+-                    MemoryBlock ixml;
+-                    input->readIntoMemoryBlock (ixml, (ssize_t) length);
+-                    IXMLChunk::addToMetadata (dict, ixml.toString());
++                    // Flayr Chop: no iXML/axml parsing: free-form XML metadata from the file, never used by
++                    // Flayr Chop, would otherwise go through the XML parser. Skipped like any unknown chunk.
+                 }
+                 else if (chunkType == chunkName ("LIST"))
+                 {

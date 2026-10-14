@@ -1,0 +1,23 @@
+Flayr Chop patch for JUCE 8.0.16-security (ea77444750de45e036e0279bb0291144bf8e3688).
+
+AIFF 'cate' chunk (AiffFileHelpers::CATEChunk::read): each tag check read three
+bytes even when fewer were left in the chunk, a heap over-read past the chunk's
+buffer (ASan). Found by Flayr Chop's fuzzing.
+
+Applied by CMakeLists.txt via FetchContent PATCH_COMMAND (cmake/ApplyPatch.cmake).
+
+Flayr-Patch-Marker: modules/juce_audio_formats/codecs/juce_AiffAudioFormat.cpp Flayr Chop: cate tag at the end
+
+diff --git a/modules/juce_audio_formats/codecs/juce_AiffAudioFormat.cpp b/modules/juce_audio_formats/codecs/juce_AiffAudioFormat.cpp
+index 3b9e32c920..7b10b03be1 100644
+--- a/modules/juce_audio_formats/codecs/juce_AiffAudioFormat.cpp
++++ b/modules/juce_audio_formats/codecs/juce_AiffAudioFormat.cpp
+@@ -256,7 +256,7 @@ namespace AiffFileHelpers
+             {
+                 bool isGenre = false;
+ 
+-                if (isValidTag (data))
++                if (dataEnd - data >= 3 && isValidTag (data)) // Flayr Chop: cate tag at the end: needs 3 bytes
+                 {
+                     auto tag = String (CharPointer_UTF8 (data), CharPointer_UTF8 (dataEnd));
+                     isGenre = isAppleGenre (tag);

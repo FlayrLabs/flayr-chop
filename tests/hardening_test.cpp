@@ -327,7 +327,7 @@ static void crashFiles (const juce::File& dir)
     }
 
     // Found by fuzzing: a 21-byte MP3 frame using intensity stereo with data up to band 21 made JUCE's
-    // MP3 decoder write past its sample buffer (cmake/PatchJuce.cmake fixes it in the fetched JUCE).
+    // MP3 decoder write past its sample buffer (patches/juce-*.patch fixes it in the fetched JUCE).
     // JUCE's decoder directly, since macOS tries Core Audio first: run it under ASan/UBSan to see the
     // write; here it must at least decode without crashing.
     {
@@ -346,7 +346,7 @@ static void crashFiles (const juce::File& dir)
     }
 
     // Found by fuzzing (macOS): a CAF chunk with a negative size sent JUCE's CAF metadata reader
-    // backwards forever, hanging the loader (cmake/PatchJuce.cmake fixes it in the fetched JUCE).
+    // backwards forever, hanging the loader (patches/juce-*.patch fixes it in the fetched JUCE).
     // Other platforms don't read CAF and refuse it at once.
     {
         auto done = std::make_shared<std::atomic<bool>> (false);
@@ -364,7 +364,7 @@ static void crashFiles (const juce::File& dir)
 
     // Found by fuzzing: JUCE's WAV and AIFF readers allocated whatever a metadata chunk's header
     // claimed (bext, smpl, inst, cue, INST: up to 4 GB for a 100-byte file) before reading it. Now
-    // limited to what the file holds (cmake/PatchJuce.cmake); the fuzz regression run, with its 512 MB
+    // limited to what the file holds (patches/juce-*.patch); the fuzz regression run, with its 512 MB
     // allocation limit, checks the allocation itself.
     for (auto* name : { "wav-bext-huge.wav", "aiff-inst-huge.aif" })
         CHECK (refusedOrFinite (fixtures.getChildFile (name)), "%s didn't load cleanly", name);
@@ -392,7 +392,7 @@ static void crashFiles (const juce::File& dir)
     CHECK (refusedOrFinite (fixtures.getChildFile ("ogg-comment-count.ogg")), "ogg-comment-count.ogg didn't load cleanly");
 
     // Found by fuzzing: JUCE's AIFF 'cate' chunk parser read three bytes per tag even when fewer were
-    // left (a heap over-read; patched by cmake/PatchJuce.cmake, reported by ASan without it).
+    // left (a heap over-read; patched by patches/juce-*.patch, reported by ASan without it).
     CHECK (refusedOrFinite (fixtures.getChildFile ("aiff-cate-tag.aiff")), "aiff-cate-tag.aiff didn't load cleanly");
 
     // Found by an independent review: 2,000 nested elements in a 16 KB WAV's iXML (or axml) chunk made
@@ -666,7 +666,7 @@ static void stateXml()
 
     // Found by fuzzing: a hexadecimal character reference cut off by the end of the text made JUCE's
     // XML parser step past the string's terminator and read on through the heap (patched by
-    // cmake/PatchJuce.cmake; under ASan this read is reported). Text, attribute, and the fuzzer's state.
+    // patches/juce-*.patch; under ASan this read is reported). Text, attribute, and the fuzzer's state.
     for (const auto& text : { juce::String ("<FlayrChop><Sample path=\"/x.wav\"/>&#x41"), juce::String ("<FlayrChop x=\"&#x4"),
                               juce::String ("<FlayrChop>&#X"), juce::String ("<FlayrChop>&#x41;&#65;&#x") })
         FlayrChopProcessor::parseState (blob (text).getData(), (int) blob (text).getSize());
