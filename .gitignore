@@ -3,6 +3,7 @@ build-*/
 dist/
 demos/
 *.wav
+!tests/fixtures/*.wav
 .DS_Store
 tests/eval/music_local.py
 tests/eval/labels.local.tsv

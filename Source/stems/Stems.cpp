@@ -539,6 +539,36 @@ private:
     std::string workerError_;
 };
 
+// Physical RAM in bytes, or 0 if unknown.
+unsigned long long physicalRam()
+{
+    unsigned long long ram = 0;
+#if defined(__APPLE__)
+    size_t len = sizeof(ram);
+    if (sysctlbyname("hw.memsize", &ram, &len, nullptr, 0) != 0)
+        ram = 0;
+#elif defined(_WIN32)
+    MEMORYSTATUSEX status;
+    status.dwLength = sizeof(status);
+    if (GlobalMemoryStatusEx(&status))
+        ram = (unsigned long long)status.ullTotalPhys;
+#else
+    const long pages = sysconf(_SC_PHYS_PAGES);
+    const long pageSize = sysconf(_SC_PAGE_SIZE);
+    if (pages > 0 && pageSize > 0)
+        ram = (unsigned long long)pages * (unsigned long long)pageSize;
+#endif
+    return ram;
+}
+
+// Most memory one separation's audio buffers may take: half of RAM, but at least 5 GB (20 minutes
+// at 48 kHz needs about 4.4) and at most 8 GB (20 minutes at 192 kHz would need over 9).
+unsigned long long separationMemoryBudget()
+{
+    const unsigned long long gb = 1ULL << 30;
+    return std::clamp(physicalRam() / 2, 5 * gb, 8 * gb);
+}
+
 // Runs fn(i) for i in [0, n) on up to `threads` threads.
 template <typename Fn>
 void parallelFor(int n, int threads, Fn&& fn)
@@ -550,14 +580,26 @@ void parallelFor(int n, int threads, Fn&& fn)
         return;
     }
     std::atomic<int> next{0};
+    // An exception on a pool thread would terminate the host: keep the first one and rethrow it here.
+    std::mutex errorMutex;
+    std::exception_ptr firstError;
     std::vector<std::thread> pool;
     for (int t = 0; t < threads; ++t)
         pool.emplace_back([&] {
-            for (int i = next.fetch_add(1); i < n; i = next.fetch_add(1))
-                fn(i);
+            try {
+                for (int i = next.fetch_add(1); i < n; i = next.fetch_add(1))
+                    fn(i);
+            } catch (...) {
+                next.store(n);
+                std::lock_guard<std::mutex> lock(errorMutex);
+                if (!firstError)
+                    firstError = std::current_exception();
+            }
         });
     for (auto& t : pool)
         t.join();
+    if (firstError)
+        std::rethrow_exception(firstError);
 }
 
 } // namespace
@@ -609,29 +651,16 @@ int defaultThreadCount()
 {
     // Each worker holds about 0.3-0.5 GB at peak; keep all workers within a
     // quarter of physical RAM (macOS, Windows and Linux alike).
-    unsigned long long ram = 0;
+    const unsigned long long ram = physicalRam();
     int cores = 0;
 #if defined(__APPLE__)
-    size_t len = sizeof(ram);
-    if (sysctlbyname("hw.memsize", &ram, &len, nullptr, 0) != 0)
-        ram = 0;
     // On Apple silicon the GEMMs run on the P cluster's shared matrix unit,
     // so past a few workers extra threads mostly wait for it while memory
     // keeps growing (measured on an M3 Pro).
     int perf = 0;
-    len = sizeof(perf);
+    size_t len = sizeof(perf);
     if (sysctlbyname("hw.perflevel0.physicalcpu", &perf, &len, nullptr, 0) == 0 && perf > 0)
         cores = std::min(perf, kAppleMaxWorkers);
-#elif defined(_WIN32)
-    MEMORYSTATUSEX status;
-    status.dwLength = sizeof(status);
-    if (GlobalMemoryStatusEx(&status))
-        ram = (unsigned long long)status.ullTotalPhys;
-#else
-    const long pages = sysconf(_SC_PHYS_PAGES);
-    const long pageSize = sysconf(_SC_PAGE_SIZE);
-    if (pages > 0 && pageSize > 0)
-        ram = (unsigned long long)pages * (unsigned long long)pageSize;
 #endif
     if (cores <= 0) {
         const unsigned hc = std::thread::hardware_concurrency();
@@ -744,6 +773,23 @@ bool separateImpl(const float* left, const float* right, int numSamples, double 
     // ---- resample to 44.1 kHz
     const bool needResample = std::abs(sampleRate - kModelRate) > 1e-6;
     const int modelLen = needResample ? (int)std::llround((double)numSamples * kModelRate / sampleRate) : numSamples;
+
+    // ---- memory: the big buffers below scale with the input. Refuse up front rather than let a
+    // long high-rate track push the host into swap (or out of memory) halfway through.
+    {
+        const auto maxShiftSamples = (unsigned long long)(demucscpp::MAX_SHIFT_SECS * kModelRate);
+        const unsigned long long floats =
+            2ULL * (unsigned long long)modelLen                                       // resampled input
+            + 2ULL * ((unsigned long long)modelLen + maxShiftSamples)                 // normalized mix
+            + 2ULL * (unsigned long long)nbSources * (unsigned long long)numSamples  // output stems
+            + (needResample ? 2ULL * (unsigned long long)nbSources * (unsigned long long)modelLen : 0ULL);
+        const unsigned long long bytes = floats * sizeof(float);
+        if (bytes > separationMemoryBudget()) {
+            setError(error, "this track is too long for stem separation at its sample rate (it would need about " +
+                                std::to_string((bytes + (1ULL << 29)) >> 30) + " GB of memory)");
+            return false;
+        }
+    }
     if (modelLen <= 0) {
         out.audio.assign((size_t)nbSources, {std::vector<float>((size_t)numSamples, 0.0f),
                                              std::vector<float>((size_t)numSamples, 0.0f)});
@@ -891,13 +937,36 @@ bool separateImpl(const float* left, const float* right, int numSamples, double 
     return true;
 }
 
+// separate() is called on a plug-in's worker thread, where an escaping exception would terminate the
+// host: every failure (out of memory included) becomes a false return with an error message.
+bool separateGuarded(const float* left, const float* right, int numSamples, double sampleRate,
+                     const std::string& modelPath, Separated& out, const std::function<bool(float)>& progress,
+                     int numThreads, std::string* error, const std::function<void(int, int)>& onSegmentReady)
+{
+    try {
+        return separateImpl(left, right, numSamples, sampleRate, modelPath, out, progress, numThreads, error,
+                            onSegmentReady);
+    } catch (const std::bad_alloc&) {
+        setError(error, "out of memory during stem separation");
+    } catch (const std::exception& e) {
+        setError(error, std::string("stem separation failed: ") + e.what());
+    } catch (...) {
+        setError(error, "stem separation failed");
+    }
+    try {
+        out = Separated{};
+    } catch (...) {
+    }
+    return false;
+}
+
 } // namespace
 
 bool separate(const float* left, const float* right, int numSamples, double sampleRate,
               const std::string& modelPath, Separated& out,
               const std::function<bool(float)>& progress, int numThreads, std::string* error)
 {
-    return separateImpl(left, right, numSamples, sampleRate, modelPath, out, progress, numThreads, error, nullptr);
+    return separateGuarded(left, right, numSamples, sampleRate, modelPath, out, progress, numThreads, error, nullptr);
 }
 
 bool separate(const float* left, const float* right, int numSamples, double sampleRate,
@@ -905,8 +974,8 @@ bool separate(const float* left, const float* right, int numSamples, double samp
               const std::function<bool(float)>& progress, int numThreads, std::string* error,
               const std::function<void(int startSample, int endSample)>& onSegmentReady)
 {
-    return separateImpl(left, right, numSamples, sampleRate, modelPath, out, progress, numThreads, error,
-                        onSegmentReady);
+    return separateGuarded(left, right, numSamples, sampleRate, modelPath, out, progress, numThreads, error,
+                           onSegmentReady);
 }
 
 } // namespace chop::stems

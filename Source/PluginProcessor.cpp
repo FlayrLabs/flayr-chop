@@ -529,7 +529,34 @@ void FlayrChopProcessor::runJob (std::function<void()> job)
     if (worker.joinable())
         worker.join();
     cancelJob = false;
-    worker = std::thread (std::move (job));
+    // An exception escaping a thread would std::terminate the host (and the user's whole session),
+    // so every job ends here: whatever went wrong becomes a status message.
+    worker = std::thread ([this, job = std::move (job)] {
+        juce::String error;
+        try
+        {
+            job();
+            return;
+        }
+        catch (const std::bad_alloc&)
+        {
+            error = "Not enough memory for that file";
+        }
+        catch (const std::exception& e)
+        {
+            error = "Something went wrong: " + juce::String (e.what());
+        }
+        catch (...)
+        {
+            error = "Something went wrong";
+        }
+        std::lock_guard<std::mutex> lock (inboxMutex);
+        inbox.push_back ([this, error] {
+            busy = Busy::None;
+            status = error;
+            sendChangeMessage();
+        });
+    });
 }
 
 void FlayrChopProcessor::loadFile (const juce::File& file)

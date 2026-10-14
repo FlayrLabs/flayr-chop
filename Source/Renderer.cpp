@@ -53,9 +53,23 @@ void parallelFor (int count, const std::function<void (int)>& fn)
 {
     const int threads = std::max (1, std::min (count, (int) std::thread::hardware_concurrency() - 1));
     std::atomic<int> next { 0 };
+    // The first exception (out of memory, usually) is carried back to the caller: thrown on a pool
+    // thread it would terminate the host.
+    std::mutex errorMutex;
+    std::exception_ptr error;
     auto work = [&] {
-        for (int i = next++; i < count; i = next++)
-            fn (i);
+        try
+        {
+            for (int i = next++; i < count; i = next++)
+                fn (i);
+        }
+        catch (...)
+        {
+            next = count; // the others stop at their next item
+            std::lock_guard<std::mutex> lock (errorMutex);
+            if (error == nullptr)
+                error = std::current_exception();
+        }
     };
     std::vector<std::thread> pool;
     for (int t = 1; t < threads; ++t)
@@ -63,6 +77,8 @@ void parallelFor (int count, const std::function<void (int)>& fn)
     work();
     for (auto& t : pool)
         t.join();
+    if (error != nullptr)
+        std::rethrow_exception (error);
 }
 
 bool stretchBuffer (const Stereo& in, Stereo& out, int outLength, double sampleRate, float semis, bool formant,
@@ -204,6 +220,9 @@ void Renderer::request (const RenderSettings& s)
             return;
         if (! pending && ! inFlight && lastDone && lastDone->sameAs (s))
             return;
+        if (! pending && ! inFlight && failedMain && failedMain->sameAs (s))
+            return; // threw last time; only a change is worth another try
+        failedMain.reset();
         pending = s;
         ++mainTicket;
     }
@@ -222,6 +241,9 @@ void Renderer::requestKeys (const KeysSettings& k)
             return;
         if (! pendingKeys && keysInFlight && keysInFlight->sameAs (k))
             return;
+        if (! pendingKeys && ! keysInFlight && failedKeys && failedKeys->sameAs (k))
+            return;
+        failedKeys.reset();
         pendingKeys = k;
         ++keysTicket;
     }
@@ -270,81 +292,22 @@ void Renderer::run()
             }
         }
 
-        // Pads come last: one at a time, so a newer main or Keys request can cut in between.
-        if (! main && ! keys)
+        // A render that throws (out of memory, usually) must not take the host down with this thread:
+        // it is dropped and not retried until something about it changes.
+        std::optional<PadJob> attemptedPad;
+        try
         {
-            std::optional<PadJob> job;
-            std::optional<RenderSettings> done;
-            uint64_t startTicket = 0;
-            const auto* cur = renderedOut.get();
-            {
-                std::lock_guard<std::mutex> lock (mutex);
-                done = lastDone;
-                startTicket = mainTicket;
-                if (cur != nullptr && cur->gen != donePadsForGen)
-                {
-                    donePads.fill (std::nullopt); // a new main render invalidates every pad render
-                    donePadsForGen = cur->gen;
-                }
-                for (const auto& j : wantedPads)
-                    if (j.pad >= 0 && j.pad < kNumPads && ! (donePads[(size_t) j.pad] && donePads[(size_t) j.pad]->sameAs (j)))
-                    {
-                        job = j;
-                        break;
-                    }
-                if (! job)
-                    padsDirty = false;
-            }
-            if (job && cur != nullptr && done)
-            {
-                if (renderPad (*job, *cur, *done, startTicket))
-                {
-                    std::lock_guard<std::mutex> lock (mutex);
-                    donePads[(size_t) job->pad] = job;
-                }
-                else
-                {
-                    std::lock_guard<std::mutex> lock (mutex);
-                    if (mainTicket == startTicket)
-                        donePads[(size_t) job->pad] = job; // unrenderable (too short): don't retry forever
-                }
-            }
-            else if (job)
-            {
-                std::lock_guard<std::mutex> lock (mutex);
-                padsDirty = false; // nothing to render against yet; the next main render re-arms it
-            }
+            work (main, keys, mTicket, kTicket, attemptedPad);
         }
-
-        if (main)
+        catch (...)
         {
-            if (renderMain (*main, mTicket))
-            {
-                std::lock_guard<std::mutex> lock (mutex);
-                lastDone = main;
-                // Keys renders belong to one main render, so redo them on top of the new one.
-                if (lastKeys && ! pendingKeys)
-                {
-                    pendingKeys = lastKeys;
-                    ++keysTicket;
-                }
-            }
-        }
-        else if (keys)
-        {
-            std::optional<RenderSettings> done;
-            {
-                std::lock_guard<std::mutex> lock (mutex);
-                done = lastDone;
-            }
-            const auto* cur = renderedOut.get();
-            if (cur != nullptr && done)
-                if (renderKeys (*keys, *cur, *done, kTicket))
-                {
-                    std::lock_guard<std::mutex> lock (mutex);
-                    lastKeys = keys;
-                    keysForGen = cur->gen;
-                }
+            std::lock_guard<std::mutex> lock (mutex);
+            if (main)
+                failedMain = main;
+            else if (keys)
+                failedKeys = keys;
+            else if (attemptedPad && attemptedPad->pad >= 0 && attemptedPad->pad < kNumPads)
+                donePads[(size_t) attemptedPad->pad] = attemptedPad;
         }
 
         std::lock_guard<std::mutex> lock (mutex);
@@ -354,6 +317,88 @@ void Renderer::run()
             padsDirty = ! wantedPads.empty(); // pads belong to the main render; redo them on top of it
         if (! pending && ! pendingKeys && ! padsDirty)
             busy = false;
+    }
+}
+
+void Renderer::work (const std::optional<RenderSettings>& main, const std::optional<KeysSettings>& keys, uint64_t mTicket,
+                     uint64_t kTicket, std::optional<PadJob>& attemptedPad)
+{
+    // Pads come last: one at a time, so a newer main or Keys request can cut in between.
+    if (! main && ! keys)
+    {
+        std::optional<PadJob> job;
+        std::optional<RenderSettings> done;
+        uint64_t startTicket = 0;
+        const auto* cur = renderedOut.get();
+        {
+            std::lock_guard<std::mutex> lock (mutex);
+            done = lastDone;
+            startTicket = mainTicket;
+            if (cur != nullptr && cur->gen != donePadsForGen)
+            {
+                donePads.fill (std::nullopt); // a new main render invalidates every pad render
+                donePadsForGen = cur->gen;
+            }
+            for (const auto& j : wantedPads)
+                if (j.pad >= 0 && j.pad < kNumPads && ! (donePads[(size_t) j.pad] && donePads[(size_t) j.pad]->sameAs (j)))
+                {
+                    job = j;
+                    break;
+                }
+            if (! job)
+                padsDirty = false;
+        }
+        if (job && cur != nullptr && done)
+        {
+            attemptedPad = job;
+            if (renderPad (*job, *cur, *done, startTicket))
+            {
+                std::lock_guard<std::mutex> lock (mutex);
+                donePads[(size_t) job->pad] = job;
+            }
+            else
+            {
+                std::lock_guard<std::mutex> lock (mutex);
+                if (mainTicket == startTicket)
+                    donePads[(size_t) job->pad] = job; // unrenderable (too short): don't retry forever
+            }
+        }
+        else if (job)
+        {
+            std::lock_guard<std::mutex> lock (mutex);
+            padsDirty = false; // nothing to render against yet; the next main render re-arms it
+        }
+    }
+
+    if (main)
+    {
+        if (renderMain (*main, mTicket))
+        {
+            std::lock_guard<std::mutex> lock (mutex);
+            lastDone = main;
+            // Keys renders belong to one main render, so redo them on top of the new one.
+            if (lastKeys && ! pendingKeys)
+            {
+                pendingKeys = lastKeys;
+                ++keysTicket;
+            }
+        }
+    }
+    else if (keys)
+    {
+        std::optional<RenderSettings> done;
+        {
+            std::lock_guard<std::mutex> lock (mutex);
+            done = lastDone;
+        }
+        const auto* cur = renderedOut.get();
+        if (cur != nullptr && done)
+            if (renderKeys (*keys, *cur, *done, kTicket))
+            {
+                std::lock_guard<std::mutex> lock (mutex);
+                lastKeys = keys;
+                keysForGen = cur->gen;
+            }
     }
 }
 

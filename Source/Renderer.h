@@ -99,6 +99,8 @@ public:
 
 private:
     void run();
+    void work (const std::optional<RenderSettings>& main, const std::optional<KeysSettings>& keys, uint64_t mainTicket,
+               uint64_t keysTicket, std::optional<PadJob>& attemptedPad);
     bool renderMain (const RenderSettings&, uint64_t ticket);
     bool renderKeys (const KeysSettings&, const Rendered&, const RenderSettings& main, uint64_t ticket);
     bool renderPad (const PadJob&, const Rendered&, const RenderSettings& main, uint64_t mainTicketAtStart);
@@ -110,8 +112,8 @@ private:
 
     std::mutex mutex;
     std::condition_variable cv;
-    std::optional<RenderSettings> pending, lastDone, inFlight;
-    std::optional<KeysSettings> pendingKeys, lastKeys, keysInFlight;
+    std::optional<RenderSettings> pending, lastDone, inFlight, failedMain;
+    std::optional<KeysSettings> pendingKeys, lastKeys, keysInFlight, failedKeys;
     std::vector<PadJob> wantedPads;
     std::array<std::optional<PadJob>, kNumPads> donePads {}; // what each published pad render was made from
     uint64_t donePadsForGen = 0;
