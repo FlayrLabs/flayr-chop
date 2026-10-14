@@ -4,7 +4,7 @@ Flayr Chop is built with the following projects.
 
 | Component | License | Source | How it's included |
 |---|---|---|---|
-| JUCE 8.0.15 | AGPLv3 (used here) or the commercial JUCE licence | https://github.com/juce-framework/JUCE | downloaded at build time |
+| JUCE 8.0.16-security, with Flayr Chop's security patches (cmake/PatchJuce.cmake) | AGPLv3 (used here) or the commercial JUCE licence | https://github.com/juce-framework/JUCE | downloaded at build time |
 | Steinberg VST3 SDK (bundled with JUCE) | MIT | https://github.com/steinbergmedia/vst3sdk | downloaded at build time |
 | LV2 (bundled with JUCE, Linux builds) | ISC | https://lv2plug.in | downloaded at build time |
 | Signalsmith Stretch 1.4.0 and Signalsmith Linear | MIT | https://github.com/Signalsmith-Audio/signalsmith-stretch | downloaded at build time |

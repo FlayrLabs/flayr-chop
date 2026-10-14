@@ -19,8 +19,8 @@ include(FetchContent)
 # check the new hash with `git ls-remote <repo> refs/tags/<tag>` (the ^{} line for annotated tags).
 FetchContent_Declare(JUCE
     GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
-    GIT_TAG 91ad83ae34a81e0833b1a2b0866f54846370ae53 # 8.0.15
-    # Security fixes to JUCE's own sources (MP3, CAF, WAV and AIFF readers, XML parser); see the script.
+    GIT_TAG ea77444750de45e036e0279bb0291144bf8e3688 # 8.0.16-security (8.0.15 + a juce::String fix for malformed UTF-8)
+    # Security fixes to JUCE's own sources (audio readers, XML, base64, VST3 wrapper state); see the script.
     PATCH_COMMAND ${CMAKE_COMMAND} -DJUCE_DIR=<SOURCE_DIR> -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/PatchJuce.cmake
 )
 # HQ Stretch engine (MIT), and the linear-algebra library it uses, declared here first so the
@@ -47,7 +47,10 @@ foreach(_patch "codecs/juce_MP3AudioFormat.cpp|Flayr Chop: maxBandl"
                "codecs/juce_WavAudioFormat.cpp|Flayr Chop: InstChunk size"
                "codecs/juce_WavAudioFormat.cpp|Flayr Chop: CueChunk size"
                "codecs/juce_AiffAudioFormat.cpp|Flayr Chop: InstChunk size"
-               "codecs/juce_AiffAudioFormat.cpp|Flayr Chop: cate tag at the end")
+               "codecs/juce_AiffAudioFormat.cpp|Flayr Chop: cate tag at the end"
+               "../juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp|Flayr Chop: private data size"
+               "../juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp|Flayr Chop: private data parse"
+               "../juce_core/memory/juce_MemoryBlock.cpp|Flayr Chop: base64 size")
     string(REPLACE "|" ";" _patch "${_patch}")
     list(GET _patch 0 _file)
     list(GET _patch 1 _marker)
@@ -158,6 +161,18 @@ if(FLAYR_CHOP_BUILD_TESTS)
     target_link_libraries(hardening_test PRIVATE juce::juce_audio_utils juce::juce_cryptography juce::juce_recommended_config_flags
         signalsmith-stretch ${FLAYR_CHOP_STEMS_TARGET})
     add_test(NAME hardening_test COMMAND hardening_test)
+
+    # The built VST3 loaded by a host: crafted states through JUCE's VST3 wrapper (see the test).
+    if(TARGET FlayrChop_VST3)
+        juce_add_console_app(vst3_wrapper_test PRODUCT_NAME "vst3_wrapper_test")
+        target_sources(vst3_wrapper_test PRIVATE tests/vst3_wrapper_test.cpp)
+        target_compile_definitions(vst3_wrapper_test PRIVATE
+            JUCE_PLUGINHOST_VST3=1 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_MODAL_LOOPS_PERMITTED=1)
+        target_link_libraries(vst3_wrapper_test PRIVATE juce::juce_audio_processors juce::juce_recommended_config_flags)
+        add_dependencies(vst3_wrapper_test FlayrChop_VST3)
+        get_target_property(_flayr_chop_vst3 FlayrChop_VST3 JUCE_PLUGIN_ARTEFACT_FILE)
+        add_test(NAME vst3_wrapper_test COMMAND vst3_wrapper_test "${_flayr_chop_vst3}")
+    endif()
 
     # Opens the editor during playback and reports what changes frame to frame.
     juce_add_console_app(FlayrChopOpenTest PRODUCT_NAME "FlayrChopOpenTest")

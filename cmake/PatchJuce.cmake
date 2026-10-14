@@ -24,6 +24,20 @@
 #
 # 5. AIFF 'cate' chunk (AiffFileHelpers::CATEChunk::read): each tag check read three bytes even when
 #    fewer were left in the chunk, a heap over-read past the chunk's buffer.
+#
+# 6. VST3 wrapper (JuceVST3Component::setStateInformation, before the plug-in sees the state): the
+#    "JUCEPrivateData" trailer's 64-bit size came from the project and was trusted, so a lying size
+#    read far outside the state (and wrapped the size passed on to the plug-in), and the trailer was
+#    parsed with ValueTree::readFromData, which recurses per child and sizes arrays from the data (a
+#    deeply nested trailer overflowed the host thread's stack; a child count of 2^31 asked for 16 GB).
+#    Found by an independent review of the sister plug-in Flayr Tune. The size must now fit in the
+#    state, the trailer is at most 4 KB, and it is read without recursion for the one value JUCE
+#    stores there (Bypass).
+#
+# 7. MemoryBlock::fromBase64Encoding: the decimal size before the '.' came from the text and was
+#    allocated (zeroed) as given, up to 2 GB for a few bytes; ValueTree::fromXml decodes attributes
+#    named "base64:..." with it, and the LV2 wrapper decodes the whole saved state with it. The size
+#    may now be no more than the encoded characters can hold.
 
 if(NOT JUCE_DIR)
     message(FATAL_ERROR "PatchJuce.cmake: pass -DJUCE_DIR=<JUCE source dir>")
@@ -131,4 +145,84 @@ flayr_chop_patch("modules/juce_audio_formats/codecs/juce_AiffAudioFormat.cpp" "F
 "                if (isValidTag (data))
 "
 "                if (dataEnd - data >= 3 && isValidTag (data)) // Flayr Chop: cate tag at the end: needs 3 bytes
+")
+
+# 6
+flayr_chop_patch("modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp" "Flayr Chop: private data size"
+"                privateDataSize = ByteOrder::swapIfBigEndian (privateDataSize);
+                size -= privateDataSize + jucePrivDataIdentifierSize + sizeof (uint64);
+"
+"                privateDataSize = ByteOrder::swapIfBigEndian (privateDataSize);
+
+                // Flayr Chop: private data size from the project: it must fit in the state (with the
+                // leading zero and the size field), or the state is refused.
+                if ((size_t) size < jucePrivDataIdentifierSize + 2 * sizeof (uint64)
+                    || privateDataSize > size - jucePrivDataIdentifierSize - 2 * sizeof (uint64))
+                    return;
+
+                size -= privateDataSize + jucePrivDataIdentifierSize + sizeof (uint64);
+")
+flayr_chop_patch("modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp" "Flayr Chop: private data parse"
+"            if (comPluginInstance->getBypassParameter() != nullptr)
+            {
+                auto privateData = ValueTree::readFromData (data, static_cast<size_t> (sizeInBytes));
+                setBypassed (static_cast<bool> (privateData.getProperty (\"Bypass\", var (false))));
+            }"
+"            if (comPluginInstance->getBypassParameter() != nullptr)
+            {
+                // Flayr Chop: private data parse without ValueTree::readFromData (recursive, and it sizes
+                // arrays from the data): only the shape writeJucePrivateStateInformation writes, one
+                // tree of scalar properties, at most 4 KB.
+                if (sizeInBytes <= 0 || sizeInBytes > 4096)
+                    return;
+
+                MemoryInputStream in (data, static_cast<size_t> (sizeInBytes), false);
+
+                if (in.readString() != kJucePrivateDataIdentifier)
+                    return;
+
+                const auto numProps = in.readCompressedInt();
+                bool bypass = false;
+
+                for (int i = 0; i < numProps && i < 16 && ! in.isExhausted(); ++i)
+                {
+                    const auto name = in.readString();
+                    const auto numBytes = in.readCompressedInt();
+
+                    if (numBytes <= 0 || numBytes > in.getNumBytesRemaining())
+                        return;
+
+                    const auto next = in.getPosition() + numBytes;
+                    const auto marker = in.readByte(); // var::writeToStream: 1 int, 2 true, 3 false
+
+                    if (name == \"Bypass\")
+                        bypass = marker == 2 || (marker == 1 && numBytes >= 5 && in.readInt() != 0);
+
+                    in.setPosition (next);
+                }
+
+                setBypassed (bypass);
+            }")
+
+# 7
+flayr_chop_patch("modules/juce_core/memory/juce_MemoryBlock.cpp" "Flayr Chop: base64 size"
+"    auto numBytesNeeded = String (s.text, dot).getIntValue();
+
+    setSize ((size_t) numBytesNeeded, true);
+"
+"    auto numBytesNeeded = String (s.text, dot).getIntValue();
+
+    // Flayr Chop: base64 size from the text: no more than the characters after the '.' can hold.
+    size_t numChars = 0;
+
+    for (auto p = dot + 1; ! p.isEmpty(); ++p)
+        ++numChars;
+
+    if (numBytesNeeded < 0 || (size_t) numBytesNeeded > numChars * 6 / 8 + 1)
+    {
+        setSize (0);
+        return false;
+    }
+
+    setSize ((size_t) numBytesNeeded, true);
 ")
