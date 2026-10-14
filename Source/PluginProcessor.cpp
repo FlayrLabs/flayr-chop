@@ -1601,13 +1601,72 @@ void FlayrChopProcessor::setStateInformation (const void* data, int sizeInBytes)
     });
 }
 
+// A restored project is kept (and saved back) until its sample loads, and the parameter tree is
+// saved back as restored, so both are rebuilt from only what this version reads: one element per pad
+// or parameter, known properties, bounded values. Otherwise extra elements or a huge unknown attribute
+// in an accepted project could save back into a state the next reopen refuses (losing the project).
+namespace
+{
+constexpr int kMaxPathChars = 32767;  // the longest path any supported OS allows
+constexpr int kMaxValueChars = 64;    // numbers and flags
+
+void copyProperties (const juce::ValueTree& from, juce::ValueTree& to, std::initializer_list<const char*> names, int maxChars)
+{
+    for (auto* name : names)
+        if (from.hasProperty (name))
+            if (const auto v = from.getProperty (name); v.toString().length() <= maxChars)
+                to.setProperty (name, v, nullptr);
+}
+} // namespace
+
+juce::ValueTree FlayrChopProcessor::cleanSampleState (const juce::ValueTree& s)
+{
+    if (! s.isValid())
+        return {};
+    juce::ValueTree out ("Sample");
+    copyProperties (s, out, { "path", "libraryPath" }, kMaxPathChars);
+    copyProperties (s, out, { "bpm", "firstBeat", "key", "minor", "bpmFromUser", "keyFromUser" }, kMaxValueChars);
+    // The same lookup applyLoaded() makes: the first element whose index matches each pad.
+    for (int i = 0; i < kNumPads; ++i)
+        if (const auto t = s.getChildWithProperty ("index", i); t.isValid() && t.hasType ("Pad"))
+        {
+            juce::ValueTree pad ("Pad");
+            pad.setProperty ("index", i, nullptr);
+            copyProperties (t, pad, { "cue", "end", "gain", "pan", "keyShift", "tape", "stretch", "filter", "favorite", "attack", "release",
+                                      "mode", "reverse", "choke", "stems" },
+                            kMaxValueChars);
+            out.appendChild (pad, nullptr);
+        }
+    return out;
+}
+
+juce::ValueTree FlayrChopProcessor::cleanParameterState (const juce::ValueTree& params) const
+{
+    if (! params.isValid())
+        return {};
+    juce::ValueTree out (params.getType());
+    std::set<juce::String> seen;
+    for (const auto& child : params)
+    {
+        const auto id = child.getProperty ("id").toString();
+        if (child.hasType ("PARAM") && apvts.getParameter (id) != nullptr && seen.insert (id).second)
+        {
+            juce::ValueTree p ("PARAM");
+            p.setProperty ("id", id, nullptr);
+            copyProperties (child, p, { "value" }, kMaxValueChars);
+            out.appendChild (p, nullptr);
+        }
+    }
+    return out;
+}
+
 void FlayrChopProcessor::applyState (const juce::XmlElement& xml)
 {
     const auto root = juce::ValueTree::fromXml (xml);
     if (! root.hasType ("FlayrChop"))
         return;
 
-    const auto params = root.getChildWithName (apvts.state.getType());
+    const auto params = cleanParameterState (root.getChildWithName (apvts.state.getType()));
     if (params.isValid())
     {
         apvts.replaceState (params);
@@ -1626,7 +1685,7 @@ void FlayrChopProcessor::applyState (const juce::XmlElement& xml)
     chopCountUI = juce::jlimit (4, 64, (int) ui.getProperty ("chopCount", 16));
     snapUI = ui.getProperty ("snap", true);
 
-    const auto s = root.getChildWithName ("Sample");
+    const auto s = cleanSampleState (root.getChildWithName ("Sample"));
     const auto path = s.getProperty ("path").toString();
     if (s.isValid() && path.isNotEmpty())
     {

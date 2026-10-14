@@ -203,6 +203,8 @@ private:
 
     // Project state across threads (see getStateInformation).
     void applyState (const juce::XmlElement&);
+    static juce::ValueTree cleanSampleState (const juce::ValueTree&);
+    juce::ValueTree cleanParameterState (const juce::ValueTree&) const;
     juce::ValueTree buildSampleState() const;
     juce::ValueTree buildUiState() const;
     void refreshStateSnapshot();

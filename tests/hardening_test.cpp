@@ -564,6 +564,45 @@ static juce::ValueTree sampleIn (const juce::MemoryBlock& mb)
     return xml != nullptr ? juce::ValueTree::fromXml (*xml).getChildWithName ("Sample") : juce::ValueTree();
 }
 
+// A project this version accepted must save into a state it accepts again, or the next reopen
+// silently loses it. Restored Sample and parameter trees used to be kept (and saved back) whole, extra
+// elements and attributes included, so an accepted project could save back past the limits.
+static void stateRoundTrip (const juce::File& dir)
+{
+    auto check = [] (const juce::String& xml, const char* what) {
+        const auto in = blob (xml);
+        CHECK (! stateRefused (in), "%s: test state refused", what);
+        FlayrChopProcessor p;
+        p.setStateInformation (in.getData(), (int) in.getSize());
+        waitIdle (p);
+        juce::MemoryBlock out;
+        p.getStateInformation (out);
+        CHECK (! stateRefused (out), "%s: saved state (%d bytes) refused on reopen", what, (int) out.getSize());
+        return sampleIn (out);
+    };
+    const auto gone = dir.getChildFile ("gone.wav").getFullPathName();
+    juce::String pads;
+    for (int i = 0; i < 480; ++i)
+        pads << "<Pad index=\"" << (i % 70) << "\" cue=\"" << (1 + i / 70) << "\" gain=\"-2\" junk=\"x\"/>";
+    const auto s = check ("<FlayrChop><Sample path=\"" + gone + "\" bpm=\"99\">" + pads + "<Other/></Sample></FlayrChop>", "480 pad elements");
+    // What the project means is kept: the first element for each pad, with the values this version reads.
+    CHECK (s.getChildWithProperty ("index", 3).isValid() && (double) s.getChildWithProperty ("index", 3).getProperty ("cue") == 1.0
+               && (double) s.getChildWithProperty ("index", 3).getProperty ("gain") == -2.0 && (double) s.getProperty ("bpm") == 99.0,
+           "480 pad elements: the project's pads or tempo were not kept");
+    CHECK (s.getNumChildren() <= chop::kNumPads, "480 pad elements: %d saved back", s.getNumChildren());
+
+    juce::String junk;
+    for (int i = 0; i < 480; ++i)
+        junk << "<PARAM id=\"volume\" value=\"" << i << "\"/>";
+    check ("<FlayrChop><FlayrChop>" + junk + "</FlayrChop><Sample path=\"" + gone + "\"/></FlayrChop>", "480 parameter elements");
+    check ("<FlayrChop><FlayrChop><x/><x/><x/>" + repeat ("<y/>", 480) + "</FlayrChop></FlayrChop>", "unknown parameter elements");
+    check ("<FlayrChop><Sample path=\"" + gone + "\" junk=\"" + juce::String::repeatedString ("a", 261000) + "\"/></FlayrChop>",
+           "a 261 KB unknown attribute");
+    check ("<FlayrChop><FlayrChop><PARAM id=\"volume\" value=\"-3\" junk=\"" + juce::String::repeatedString ("a", 261000)
+               + "\"/></FlayrChop></FlayrChop>",
+           "a 261 KB attribute on a parameter");
+}
+
 // Hosts that save and restore off the message thread.
 static void threadedState (const juce::File& dir)
 {
@@ -797,6 +836,8 @@ int main()
     crashFiles (dir);
     std::printf ("-- stateXml\n");
     stateXml();
+    std::printf ("-- stateRoundTrip\n");
+    stateRoundTrip (dir);
     std::printf ("-- nanState\n");
     nanState (dir);
     std::printf ("-- threadedState\n");
