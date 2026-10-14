@@ -347,6 +347,12 @@ void FlayrChopProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
     firePendingUntil (n);
     renderTo (cursor, n);
 
+    // The playhead rides along with the pad that's playing, and stays where it stopped.
+    if (! sampler.isPreviewing())
+        if (const int fv = sampler.followVoice.load (std::memory_order_relaxed); fv >= 0)
+            if (sampler.views[(size_t) fv].pad.load (std::memory_order_relaxed) >= 0)
+                idlePlayhead.store ((double) sampler.views[(size_t) fv].sourceSec.load (std::memory_order_relaxed), std::memory_order_relaxed);
+
     // Hits still waiting move one block closer.
     for (auto& p : pending)
         if (p.note >= 0)
@@ -920,12 +926,13 @@ void FlayrChopProcessor::stop()
 
 double FlayrChopProcessor::getPlayhead() const
 {
-    return sampler.isPreviewing() ? (double) sampler.previewView.sourceSec.load() : playheadSec;
+    return sampler.isPreviewing() ? (double) sampler.previewView.sourceSec.load() : idlePlayhead.load();
 }
 
 void FlayrChopProcessor::setPlayhead (double seconds)
 {
     playheadSec = juce::jlimit (0.0, sample ? sample->lengthSec() : 0.0, seconds);
+    sampler.followVoice = -1; // a click takes the playhead off a playing pad
     idlePlayhead = playheadSec;
     if (sampler.isPreviewing())
     {

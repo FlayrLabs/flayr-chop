@@ -261,6 +261,7 @@ public:
             v = Voice {};
         preview = Voice {};
         previewView.on.store (false);
+        followVoice.store (-1);
         for (auto& f : filt)
             f.reset();
         filterSmoothed = 0.0f;
@@ -305,6 +306,9 @@ public:
             stopPreview();
 
         auto& v = freeVoice();
+        // With the transport stopped, the playhead follows the latest pad hit (one playhead).
+        if (! isPreviewing())
+            followVoice.store ((int) (&v - voices.data()), std::memory_order_relaxed);
         const auto& r = *c.rendered;
         v = Voice {};
         v.active = true;
@@ -487,6 +491,8 @@ public:
             const auto& v = voices[(size_t) i];
             auto& view = views[(size_t) i];
             view.pad.store (v.active ? v.pad : -1, std::memory_order_relaxed);
+            if (! v.active && followVoice.load (std::memory_order_relaxed) == i)
+                followVoice.store (-1, std::memory_order_relaxed);
             if (v.active && v.rendered != nullptr)
             {
                 const double renderedPos = v.buf != nullptr ? v.bufOrigin + v.pos * v.bufScale : v.pos;
@@ -533,6 +539,7 @@ public:
     }
 
     std::array<VoiceView, kMaxVoices> views;
+    std::atomic<int> followVoice { -1 }; // the pad voice the playhead follows, or -1
     struct PreviewView
     {
         std::atomic<bool> on { false };

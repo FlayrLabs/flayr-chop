@@ -207,6 +207,34 @@ int main (int argc, char** argv)
     proc.select (8, false);
     proc.select (9, true);
     expect (proc.getSelection().size() == 2, "shift-click multi-select");
+
+    // One playhead: it follows the pad you hit, and PLAY carries on from there without doubling.
+    proc.deletePads (all);
+    proc.setPlayhead (20.0);
+    proc.setCueAtPlayhead (0);
+    proc.setPlayhead (5.0);
+    juce::MidiBuffer padHit;
+    padHit.addEvent (juce::MidiMessage::noteOn (1, chop::kFirstPadNote, (juce::uint8) 100), 0);
+    proc.processBlock (blk, padHit);
+    const int halfSec = (int) (proc.getSampleRate() * 0.5 / 512);
+    for (int b = 0; b < halfSec; ++b) proc.processBlock (blk, none);
+    const double followed = proc.getPlayhead();
+    std::printf ("pad playhead: %.3f s (pad cue 20.000)\n", followed);
+    expect (! proc.isPlaying() && std::abs (followed - 20.5) < 0.05, "playhead follows the pad that's playing");
+    {
+        waitFor ([&] { return false; }, 0.2);
+        auto shot = ed->createComponentSnapshot (ed->getLocalBounds(), true, 1.0f);
+        juce::File pf (outPath.upToLastOccurrenceOf (".", false, false) + "-pad.png");
+        pf.deleteFile();
+        juce::FileOutputStream pos (pf);
+        juce::PNGImageFormat().writeImageToStream (shot, pos);
+    }
+    proc.play();
+    for (int b = 0; b < 8; ++b) proc.processBlock (blk, none);
+    expect (proc.isPlaying() && proc.sampler.activeVoices() == 0 && std::abs (proc.getPlayhead() - followed) < 0.15,
+            "PLAY carries on from the pad without doubling");
+    proc.stop();
+    for (int b = 0; b < 4; ++b) proc.processBlock (blk, none);
     std::printf ("workflow: %s\n", fails == 0 ? "OK" : "FAILED");
     return fails == 0 ? 0 : 3;
 }

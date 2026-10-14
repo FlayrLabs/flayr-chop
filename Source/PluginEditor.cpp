@@ -364,9 +364,12 @@ void Waveform::paint (juce::Graphics& g)
         head.addTriangle (x - 6.0f, 0.0f, x + 6.0f, 0.0f, x, 8.0f);
         g.fillPath (head);
     }
-    for (const auto& v : proc.sampler.views)
+    // Other pads still ringing (poly mode) get a thin line; the one being followed is the playhead.
+    const int followed = proc.isPlaying() ? -1 : proc.sampler.followVoice.load();
+    for (int i = 0; i < (int) proc.sampler.views.size(); ++i)
     {
-        if (v.pad.load() < 0)
+        const auto& v = proc.sampler.views[(size_t) i];
+        if (v.pad.load() < 0 || i == followed)
             continue;
         const float x = xAt (v.sourceSec.load());
         g.setColour (juce::Colours::white.withAlpha (0.9f));
@@ -576,8 +579,13 @@ void Overview::paint (juce::Graphics& g)
     g.fillRect (x0, 0.0f, w, b.getHeight());
     g.setColour (accent.withAlpha (0.7f));
     g.drawRect (x0, 0.0f, juce::jmax (2.0f, w), b.getHeight(), 1.0f);
-    for (const auto& v : proc.sampler.views)
-        if (v.pad.load() >= 0)
+    {
+        g.setColour (warn);
+        g.fillRect ((float) (proc.getPlayhead() / len * getWidth()) - 0.5f, 0.0f, 2.0f, b.getHeight());
+    }
+    const int followed = proc.isPlaying() ? -1 : proc.sampler.followVoice.load();
+    for (int i = 0; i < (int) proc.sampler.views.size(); ++i)
+        if (const auto& v = proc.sampler.views[(size_t) i]; v.pad.load() >= 0 && i != followed)
         {
             g.setColour (juce::Colours::white);
             g.fillRect ((float) (v.sourceSec.load() / len * getWidth()), 0.0f, 1.0f, b.getHeight());
@@ -1306,7 +1314,8 @@ void FlayrChopEditor::timerCallback()
     {
         const double ph = proc.getPlayhead();
         timeLabel.setText (ui::timeString (ph) + " / " + ui::timeString (s->lengthSec()), juce::dontSendNotification);
-        if (playing && wave.viewLen < s->lengthSec() - 1e-6 && (ph > wave.viewStart + wave.viewLen * 0.92 || ph < wave.viewStart))
+        const bool moving = playing || proc.sampler.followVoice.load() >= 0;
+        if (moving && wave.viewLen < s->lengthSec() - 1e-6 && (ph > wave.viewStart + wave.viewLen * 0.92 || ph < wave.viewStart))
         {
             wave.viewStart = ph - wave.viewLen * 0.08;
             wave.clampView();
