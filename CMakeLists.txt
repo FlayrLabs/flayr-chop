@@ -20,7 +20,7 @@ include(FetchContent)
 FetchContent_Declare(JUCE
     GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
     GIT_TAG 91ad83ae34a81e0833b1a2b0866f54846370ae53 # 8.0.15
-    # Security fixes to JUCE's own sources (MP3 decoder, CAF metadata); see the script.
+    # Security fixes to JUCE's own sources (MP3, CAF, WAV and AIFF readers, XML parser); see the script.
     PATCH_COMMAND ${CMAKE_COMMAND} -DJUCE_DIR=<SOURCE_DIR> -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/PatchJuce.cmake
 )
 # HQ Stretch engine (MIT), and the linear-algebra library it uses, declared here first so the
@@ -37,12 +37,20 @@ FetchContent_MakeAvailable(JUCE signalsmith-linear signalsmith-stretch)
 
 # A JUCE checkout given with FETCHCONTENT_SOURCE_DIR_JUCE skips the patch step: refuse to build the
 # plug-in with an unpatched decoder (run cmake/PatchJuce.cmake on that checkout first).
-foreach(_patch "juce_MP3AudioFormat.cpp|Flayr Chop: maxBandl" "juce_CoreAudioFormat.cpp|Flayr Chop: negative chunk size"
-               "juce_CoreAudioFormat.cpp|Flayr Chop: info entries" "juce_CoreAudioFormat.cpp|Flayr Chop: uuid entries")
+foreach(_patch "codecs/juce_MP3AudioFormat.cpp|Flayr Chop: maxBandl"
+               "codecs/juce_CoreAudioFormat.cpp|Flayr Chop: negative chunk size"
+               "codecs/juce_CoreAudioFormat.cpp|Flayr Chop: info entries"
+               "codecs/juce_CoreAudioFormat.cpp|Flayr Chop: uuid entries"
+               "../juce_core/xml/juce_XmlDocument.cpp|Flayr Chop: hex entity at the end"
+               "codecs/juce_WavAudioFormat.cpp|Flayr Chop: BWAVChunk size"
+               "codecs/juce_WavAudioFormat.cpp|Flayr Chop: SMPLChunk size"
+               "codecs/juce_WavAudioFormat.cpp|Flayr Chop: InstChunk size"
+               "codecs/juce_WavAudioFormat.cpp|Flayr Chop: CueChunk size"
+               "codecs/juce_AiffAudioFormat.cpp|Flayr Chop: InstChunk size")
     string(REPLACE "|" ";" _patch "${_patch}")
     list(GET _patch 0 _file)
     list(GET _patch 1 _marker)
-    file(READ "${juce_SOURCE_DIR}/modules/juce_audio_formats/codecs/${_file}" _src)
+    file(READ "${juce_SOURCE_DIR}/modules/juce_audio_formats/${_file}" _src)
     string(FIND "${_src}" "${_marker}" _found)
     if(_found EQUAL -1)
         message(FATAL_ERROR "JUCE at ${juce_SOURCE_DIR} lacks Flayr Chop's security patches (${_marker}). Run:\n"

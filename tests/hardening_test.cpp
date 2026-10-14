@@ -326,6 +326,21 @@ static void crashFiles (const juce::File& dir)
         CHECK (*done, "the negative-chunk CAF file hung the loader");
     }
 
+    // Found by fuzzing: JUCE's WAV and AIFF readers allocated whatever a metadata chunk's header
+    // claimed (bext, smpl, inst, cue, INST: up to 4 GB for a 100-byte file) before reading it. Now
+    // limited to what the file holds (cmake/PatchJuce.cmake); the fuzz regression run, with its 512 MB
+    // allocation limit, checks the allocation itself.
+    for (auto* name : { "wav-bext-huge.wav", "aiff-inst-huge.aif" })
+        CHECK (refusedOrFinite (fixtures.getChildFile (name)), "%s didn't load cleanly", name);
+    {
+        Bytes b;
+        b.tag ("RIFF").u32 (0x7fffffffu).tag ("WAVE");
+        fmtChunk (b, 1, 2, 44100, 16);
+        b.tag ("smpl").u32 (0xfffffff0u).zeros (36);
+        b.tag ("data").u32 (16).zeros (16);
+        CHECK (refusedOrFinite (b.save (dir.getChildFile ("smpl-4gb.wav"))), "a 4 GB smpl chunk didn't load cleanly");
+    }
+
     // Longer than 20 minutes at a sane rate (header only; the length check comes before any read).
     CHECK (refused (rf64Wav (dir.getChildFile ("long.wav"), 8000, 8000ULL * 8 * 1300, 64), error), "21-minute file not refused");
 
@@ -471,6 +486,20 @@ static void stateXml()
         CHECK (stateRefused (rawBlob (bom.getData(), bom.getDataSize())), "UTF-16 with BOM");
         CHECK (stateRefused (blob (juce::String::fromUTF8 ("\xef\xbb\xbf") + decl + nested (600))), "UTF-8 BOM + declaration + nesting");
         FlayrChopProcessor::parseState (blob (juce::String::fromUTF8 ("\xef\xbb\xbf") + "<FlayrChop/>").getData(), 30); // must not crash
+    }
+
+    // Found by fuzzing: a hexadecimal character reference cut off by the end of the text made JUCE's
+    // XML parser step past the string's terminator and read on through the heap (patched by
+    // cmake/PatchJuce.cmake; under ASan this read is reported). Text, attribute, and the fuzzer's state.
+    for (const auto& text : { juce::String ("<FlayrChop><Sample path=\"/x.wav\"/>&#x41"), juce::String ("<FlayrChop x=\"&#x4"),
+                              juce::String ("<FlayrChop>&#X"), juce::String ("<FlayrChop>&#x41;&#65;&#x") })
+        FlayrChopProcessor::parseState (blob (text).getData(), (int) blob (text).getSize());
+    {
+        juce::MemoryBlock mb;
+        fixtures.getChildFile ("state-hex-entity.bin").loadFileAsData (mb);
+        FlayrChopProcessor p;
+        p.setStateInformation (mb.getData(), (int) mb.getSize());
+        CHECK (true, "survived the cut-off hex entity");
     }
 
     // Envelope.
