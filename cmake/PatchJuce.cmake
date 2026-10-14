@@ -21,6 +21,9 @@
 #    whatever size the chunk header claimed, up to 4 GB for a 100-byte file, before reading it; where
 #    that allocation fails the null buffer is then used. The size is now limited to what the file
 #    holds.
+#
+# 5. AIFF 'cate' chunk (AiffFileHelpers::CATEChunk::read): each tag check read three bytes even when
+#    fewer were left in the chunk, a heap over-read past the chunk's buffer.
 
 if(NOT JUCE_DIR)
     message(FATAL_ERROR "PatchJuce.cmake: pass -DJUCE_DIR=<JUCE source dir>")
@@ -121,4 +124,11 @@ flayr_chop_patch("modules/juce_audio_formats/codecs/juce_AiffAudioFormat.cpp" "F
 "
 "                        ${_clamp} // Flayr Chop: InstChunk size within the file
                         HeapBlock<InstChunk> inst;
+")
+
+# 5
+flayr_chop_patch("modules/juce_audio_formats/codecs/juce_AiffAudioFormat.cpp" "Flayr Chop: cate tag at the end"
+"                if (isValidTag (data))
+"
+"                if (dataEnd - data >= 3 && isValidTag (data)) // Flayr Chop: cate tag at the end: needs 3 bytes
 ")

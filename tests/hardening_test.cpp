@@ -355,6 +355,10 @@ static void crashFiles (const juce::File& dir)
     // only when its comment count fits in the file (real Opus/Vorbis files still load there).
     CHECK (refusedOrFinite (fixtures.getChildFile ("ogg-comment-count.ogg")), "ogg-comment-count.ogg didn't load cleanly");
 
+    // Found by fuzzing: JUCE's AIFF 'cate' chunk parser read three bytes per tag even when fewer were
+    // left (a heap over-read; patched by cmake/PatchJuce.cmake, reported by ASan without it).
+    CHECK (refusedOrFinite (fixtures.getChildFile ("aiff-cate-tag.aiff")), "aiff-cate-tag.aiff didn't load cleanly");
+
     // Longer than 20 minutes at a sane rate (header only; the length check comes before any read).
     CHECK (refused (rf64Wav (dir.getChildFile ("long.wav"), 8000, 8000ULL * 8 * 1300, 64), error), "21-minute file not refused");
 

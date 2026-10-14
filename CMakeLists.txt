@@ -46,7 +46,8 @@ foreach(_patch "codecs/juce_MP3AudioFormat.cpp|Flayr Chop: maxBandl"
                "codecs/juce_WavAudioFormat.cpp|Flayr Chop: SMPLChunk size"
                "codecs/juce_WavAudioFormat.cpp|Flayr Chop: InstChunk size"
                "codecs/juce_WavAudioFormat.cpp|Flayr Chop: CueChunk size"
-               "codecs/juce_AiffAudioFormat.cpp|Flayr Chop: InstChunk size")
+               "codecs/juce_AiffAudioFormat.cpp|Flayr Chop: InstChunk size"
+               "codecs/juce_AiffAudioFormat.cpp|Flayr Chop: cate tag at the end")
     string(REPLACE "|" ";" _patch "${_patch}")
     list(GET _patch 0 _file)
     list(GET _patch 1 _marker)
