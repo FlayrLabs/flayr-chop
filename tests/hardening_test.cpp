@@ -6,6 +6,7 @@
 #include <juce_cryptography/juce_cryptography.h>
 
 #include <cstdio>
+#include <atomic>
 #include <thread>
 #if ! defined (_WIN32)
 #include <sys/stat.h>
@@ -306,6 +307,23 @@ static void crashFiles (const juce::File& dir)
         chop::LoadedSample s;
         chop::loadSample (fixtures.getChildFile ("mp3-intensity-stereo.mp3"), s, why);
         CHECK (true, "survived the intensity-stereo MP3");
+    }
+
+    // Found by fuzzing (macOS): a CAF chunk with a negative size sent JUCE's CAF metadata reader
+    // backwards forever, hanging the loader (cmake/PatchJuce.cmake fixes it in the fetched JUCE).
+    // Other platforms don't read CAF and refuse it at once.
+    {
+        auto done = std::make_shared<std::atomic<bool>> (false);
+        const auto caf = fixtures.getChildFile ("caf-negative-chunk.caf");
+        std::thread ([caf, done] {
+            chop::LoadedSample s;
+            juce::String why;
+            chop::loadSample (caf, s, why);
+            *done = true;
+        }).detach();
+        for (int i = 0; i < 400 && ! *done; ++i)
+            juce::Thread::sleep (50);
+        CHECK (*done, "the negative-chunk CAF file hung the loader");
     }
 
     // Longer than 20 minutes at a sane rate (header only; the length check comes before any read).
