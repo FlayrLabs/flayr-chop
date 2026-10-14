@@ -173,6 +173,14 @@ if(FLAYR_CHOP_BUILD_TESTS)
         signalsmith-stretch ${FLAYR_CHOP_STEMS_TARGET})
     add_test(NAME hardening_test COMMAND hardening_test)
 
+    # The release script's check of CI-built release files, against a fake gh (pass and fail-closed).
+    find_program(FLAYR_CHOP_BASH bash)
+    if(FLAYR_CHOP_BASH AND NOT WIN32)
+        add_test(NAME release_verify_test
+                 COMMAND ${FLAYR_CHOP_BASH} tests/release_verify_test.sh scripts/verify-release-assets.sh
+                 WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+    endif()
+
     # The built VST3 loaded by a host: crafted states through JUCE's VST3 wrapper (see the test).
     if(TARGET FlayrChop_VST3)
         juce_add_console_app(vst3_wrapper_test PRODUCT_NAME "vst3_wrapper_test")

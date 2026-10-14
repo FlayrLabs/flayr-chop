@@ -146,25 +146,18 @@ if [[ "${1:-}" == "--upload" ]]; then
     # people already downloaded and verified.
     [[ "$(gh release view "$TAG" --repo "$REPO" --json isDraft --jq .isDraft)" == "true" ]] \
         || die "release $TAG is already published (or missing); refusing to change its files"
-    gh release upload "$TAG" "$DMG" --clobber --repo "$REPO"
-    echo "==> Uploaded to release $TAG"
 
-    # Checksums only for files we can vouch for: the DMG we just built and notarized
-    # (byte-identical to the local copy), and CI builds whose provenance attestation
-    # verifies. Anything else on the draft stops the script.
-    sums_dir="$(mktemp -d)"
-    gh release download "$TAG" --repo "$REPO" --dir "$sums_dir" --pattern 'FlayrChop-*'
-    for asset in "$sums_dir"/FlayrChop-*; do
-        name="$(basename "$asset")"
-        if [[ "$name" == "$(basename "$DMG")" ]]; then
-            cmp -s "$asset" "$DMG" || die "$name on the release differs from the DMG just built"
-        else
-            gh attestation verify "$asset" --repo "$REPO" >/dev/null || die "$name has no valid build provenance attestation"
-        fi
-        echo "    verified $name"
-    done
-    (cd "$sums_dir" && shasum -a 256 FlayrChop-* > SHA256SUMS.txt && cat SHA256SUMS.txt)
-    gh release upload "$TAG" "$sums_dir/SHA256SUMS.txt" --clobber --repo "$REPO"
-    rm -rf "$sums_dir"
-    echo "==> Uploaded SHA256SUMS.txt"
+    # Checksums only for files we can vouch for, worked out before anything is uploaded: every
+    # file CI put on the draft must be attested by this repo's release workflow for this tag at
+    # exactly $TAG_SHA (scripts/verify-release-assets.sh, from the tag's own sources), plus the DMG
+    # just built. The checksums cover the very bytes that were verified; any failure stops here,
+    # with nothing uploaded.
+    download="$(mktemp -d "$WORK/download.XXXXXX")"
+    verified="$(mktemp -d "$WORK/verified.XXXXXX")"
+    gh release download "$TAG" --repo "$REPO" --dir "$download" --pattern 'FlayrChop-*'
+    GH="$(command -v gh)" "$SRC/scripts/verify-release-assets.sh" "$TAG" "$TAG_SHA" "$download" "$verified" "$DMG"
+
+    gh release upload "$TAG" "$verified/$(basename "$DMG")" --repo "$REPO" # never replaces a file
+    gh release upload "$TAG" "$verified/SHA256SUMS.txt" --repo "$REPO"
+    echo "==> Uploaded $(basename "$DMG") and SHA256SUMS.txt to the draft $TAG"
 fi
