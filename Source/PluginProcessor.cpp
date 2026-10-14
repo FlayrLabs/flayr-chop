@@ -304,6 +304,10 @@ void FlayrChopProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
         cursor = at;
         const auto msg = meta.getMessage();
 
+        // AU's legacy MIDI callback hands over raw bytes, so a note number can be up to 255.
+        if ((msg.isNoteOn() || msg.isNoteOff()) && ! juce::isPositiveAndBelow (msg.getNoteNumber(), (int) held.size()))
+            continue;
+
         if (msg.isNoteOn())
         {
             const int note = msg.getNoteNumber();

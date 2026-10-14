@@ -876,6 +876,25 @@ static void nanState (const juce::File& dir)
         p.processBlock (empty, midi);
     }
 
+    // Found by an independent review: AU's legacy MIDI callback passes raw bytes, so a note number
+    // can be 128-255. Indexing the 128-entry held-notes table with it wrote over the parameter
+    // pointers that follow it (ASan can't see an overflow inside one object). Such notes are ignored.
+    {
+        juce::AudioBuffer<float> buf (2, 256);
+        juce::MidiBuffer midi;
+        for (int note = 128; note < 256; ++note)
+        {
+            const juce::uint8 on[] { 0x90, (juce::uint8) note, 100 }, off[] { 0x80, (juce::uint8) note, 0 };
+            midi.addEvent (juce::MidiMessage (on, 3), 0);
+            midi.addEvent (juce::MidiMessage (off, 3), 1);
+        }
+        CHECK (juce::MidiMessage ((const juce::uint8[]) { 0x90, 255, 100 }, 3).getNoteNumber() == 255,
+               "raw note-on keeps note 255 (the case this guards)");
+        p.processBlock (buf, midi);
+        float rawPeak = 0.0f;
+        CHECK (playIsFinite (p, rawPeak) && rawPeak > 0.01f, "notes 128-255 ignored; pad A1 still plays (peak %f)", rawPeak);
+    }
+
     // Found by an independent review: NaN tempo and key values (a host's tempo, the manual tempo or
     // key shift parameter) slipped through range checks (NaN fails every comparison) into the speed,
     // the key and the stretcher's transpose (undefined behaviour there).
