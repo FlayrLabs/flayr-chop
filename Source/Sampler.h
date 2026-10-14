@@ -30,7 +30,12 @@ struct Stereo
 {
     std::vector<float> l, r;
     int size() const { return (int) l.size(); }
-    void resize (int n) { l.assign ((size_t) n, 0.0f); r.assign ((size_t) n, 0.0f); }
+    void resize (int n)
+    {
+        const auto count = (size_t) std::max (0, n); // a negative count must not wrap to a huge size_t
+        l.assign (count, 0.0f);
+        r.assign (count, 0.0f);
+    }
 };
 using StereoPtr = std::shared_ptr<const Stereo>;
 

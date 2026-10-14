@@ -17,6 +17,17 @@ juce::AudioFormatManager& formats()
 
 constexpr double kMaxSeconds = 20.0 * 60.0;
 
+// File headers are untrusted: a rate or length from a crafted file must never size a buffer on its own.
+constexpr double kMinRate = 8000.0, kMaxRate = 768000.0;
+constexpr juce::int64 kMaxFrames = (juce::int64) (kMaxSeconds * 192000.0); // 20 minutes at 192 kHz
+static_assert (kMaxFrames <= std::numeric_limits<int>::max(), "frame counts are stored as int");
+
+// Uncompressed formats store every frame, so a length the file can't hold is a lie.
+bool isUncompressed (const juce::AudioFormatReader& r)
+{
+    return r.getFormatName().containsIgnoreCase ("WAV") || r.getFormatName().containsIgnoreCase ("AIFF");
+}
+
 juce::AudioFormatWriterOptions writerOptions (double rate)
 {
     return juce::AudioFormatWriterOptions().withSampleRate (rate).withNumChannels (2).withBitsPerSample (24);
@@ -56,19 +67,33 @@ bool loadSample (const juce::File& file, LoadedSample& out, juce::String& error,
     }
     const auto rate = reader->sampleRate;
     const auto length = reader->lengthInSamples;
-    if (rate <= 0 || length <= 0)
+    if (! std::isfinite (rate) || rate < kMinRate || rate > kMaxRate)
+    {
+        error = file.getFileName() + " has an unsupported sample rate";
+        return false;
+    }
+    if (length <= 0)
     {
         error = file.getFileName() + " is empty";
         return false;
     }
-    if (length / rate > kMaxSeconds)
+    if (length > (juce::int64) (kMaxSeconds * rate) || length > kMaxFrames)
     {
         error = file.getFileName() + " is longer than 20 minutes";
         return false;
     }
+    if (isUncompressed (*reader))
+    {
+        const auto bytesPerFrame = (juce::int64) reader->numChannels * (juce::int64) ((reader->bitsPerSample + 7) / 8);
+        if (bytesPerFrame <= 0 || length > file.getSize() / bytesPerFrame)
+        {
+            error = file.getFileName() + " is damaged (its header claims more audio than the file holds)";
+            return false;
+        }
+    }
 
     auto st = std::make_shared<Stereo>();
-    st->resize ((int) length);
+    st->resize ((int) length); // length <= kMaxFrames, checked above
     juce::AudioBuffer<float> tmp (2, 1 << 16);
     for (juce::int64 pos = 0; pos < length; pos += tmp.getNumSamples())
     {
@@ -95,7 +120,12 @@ StereoPtr resample (const Stereo& in, double fromRate, double toRate)
     if (std::abs (fromRate - toRate) < 1e-6)
         return std::make_shared<Stereo> (in);
 
-    const int outLen = (int) std::llround (in.size() * toRate / fromRate);
+    if (! std::isfinite (fromRate) || ! std::isfinite (toRate) || fromRate <= 0.0 || toRate <= 0.0)
+        throw std::invalid_argument ("resample: unsupported sample rate");
+    const auto outLen64 = std::llround (in.size() * toRate / fromRate);
+    if (outLen64 < 0 || outLen64 > std::numeric_limits<int>::max())
+        throw std::length_error ("resample: result too long");
+    const int outLen = (int) outLen64;
     auto out = std::make_shared<Stereo>();
     out->resize (outLen);
     const stems::detail::SincResampler rs (fromRate, toRate);
