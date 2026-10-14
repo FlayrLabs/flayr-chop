@@ -109,6 +109,19 @@ static bool refused (const juce::File& f, juce::String& error)
     return ! ok && error.isNotEmpty() && s.original == nullptr;
 }
 
+// Loads, and every sample is finite.
+static bool loadsFinite (const juce::File& f)
+{
+    chop::LoadedSample s;
+    juce::String error;
+    if (! chop::loadSample (f, s, error) || s.original == nullptr)
+        return false;
+    for (int i = 0; i < s.original->size(); ++i)
+        if (! std::isfinite (s.original->l[(size_t) i]) || ! std::isfinite (s.original->r[(size_t) i]))
+            return false;
+    return std::isfinite (s.analysis.bpm);
+}
+
 //==============================================================================
 static void crashFiles (const juce::File& dir)
 {
@@ -213,6 +226,31 @@ static void crashFiles (const juce::File& dir)
         chop::LoadedSample s;
         CHECK (chop::loadSample (f, s, error) && s.original != nullptr && s.original->size() == silence.getNumSamples(),
                "30 s of FLAC silence (%d bytes) refused: %s", (int) f.getSize(), error.toRawUTF8());
+    }
+
+    // Found by fuzzing: 32-bit float WAV data is passed through as stored, so NaN, infinities and
+    // absurd values reached the analysis and the audio. They load as silence / clamped now.
+    {
+        const float values[] = { std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(),
+                                 -std::numeric_limits<float>::infinity(), 1e30f, -1e30f, 0.5f, -0.25f, 0.0f };
+        Bytes b;
+        b.tag ("RIFF").u32 (36 + (juce::uint32) sizeof (values) * 100).tag ("WAVE");
+        fmtChunk (b, 3, 1, 8000, 32);
+        b.tag ("data").u32 ((juce::uint32) sizeof (values) * 100);
+        for (int k = 0; k < 100; ++k)
+            for (auto v : values)
+                b.out.writeFloat (v);
+        chop::LoadedSample s;
+        const bool ok = chop::loadSample (b.save (dir.getChildFile ("float-nan.wav")), s, error);
+        bool finite = ok && s.original != nullptr && s.original->size() == 800;
+        for (int i = 0; finite && i < s.original->size(); ++i)
+            finite = std::isfinite (s.original->l[(size_t) i]) && std::abs (s.original->l[(size_t) i]) <= 16.0f
+                     && std::isfinite (s.original->r[(size_t) i]);
+        CHECK (finite, "float WAV with NaN/inf: not loaded as finite audio (%s)", error.toRawUTF8());
+        CHECK (finite && s.original->l[0] == 0.0f && s.original->l[1] == 0.0f && s.original->l[3] == 16.0f && s.original->l[5] == 0.5f,
+               "float WAV with NaN/inf: values not cleaned as expected");
+        CHECK (ok && std::isfinite (s.analysis.bpm) && std::isfinite (s.analysis.bpmConfidence), "float WAV with NaN/inf: analysis not finite");
+        CHECK (loadsFinite (fixtures.getChildFile ("float-nan.wav")), "the fuzzer's float NaN file did not load as finite audio");
     }
 
     // Longer than 20 minutes at a sane rate (header only; the length check comes before any read).

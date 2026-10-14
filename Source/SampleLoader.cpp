@@ -29,6 +29,7 @@ constexpr unsigned int kMaxChannels = 64;
 constexpr juce::int64 kMaxFrames = (juce::int64) (kMaxSeconds * 192000.0); // 20 minutes at 192 kHz
 static_assert (kMaxFrames <= std::numeric_limits<int>::max(), "frame counts are stored as int");
 constexpr juce::int64 kMaxFramesPerCompressedByte = 16384;
+constexpr float kMaxSampleValue = 16.0f;
 
 // Uncompressed formats store every frame, so a length the file can't hold is a lie.
 bool isUncompressed (const juce::AudioFormatReader& r)
@@ -204,8 +205,12 @@ std::shared_ptr<Stereo> readAll (juce::AudioFormatReader& reader, int frames, co
         tmp.clear();
         if (! reader.read (&tmp, 0, n, pos, true, true))
             return nullptr; // short or failed read
-        std::copy (tmp.getReadPointer (0), tmp.getReadPointer (0) + n, st->l.begin() + pos);
-        std::copy (tmp.getReadPointer (rightCh), tmp.getReadPointer (rightCh) + n, st->r.begin() + pos);
+        // Float files can hold NaN, infinities or absurd values, and none of that may reach the
+        // analysis or the host: anything non-finite becomes silence, the rest is kept within +-16
+        // (+24 dBFS, far above any real recording).
+        const auto clean = [] (float x) { return std::isfinite (x) ? juce::jlimit (-kMaxSampleValue, kMaxSampleValue, x) : 0.0f; };
+        std::transform (tmp.getReadPointer (0), tmp.getReadPointer (0) + n, st->l.begin() + pos, clean);
+        std::transform (tmp.getReadPointer (rightCh), tmp.getReadPointer (rightCh) + n, st->r.begin() + pos, clean);
         pos += n;
     }
     return st;
