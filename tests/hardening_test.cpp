@@ -109,12 +109,14 @@ static bool refused (const juce::File& f, juce::String& error)
     return ! ok && error.isNotEmpty() && s.original == nullptr;
 }
 
-// Loads, and every sample is finite.
-static bool loadsFinite (const juce::File& f)
+// Refused with a message, or loaded with every sample finite.
+static bool refusedOrFinite (const juce::File& f)
 {
     chop::LoadedSample s;
     juce::String error;
-    if (! chop::loadSample (f, s, error) || s.original == nullptr)
+    if (! chop::loadSample (f, s, error))
+        return s.original == nullptr && error.isNotEmpty();
+    if (s.original == nullptr)
         return false;
     for (int i = 0; i < s.original->size(); ++i)
         if (! std::isfinite (s.original->l[(size_t) i]) || ! std::isfinite (s.original->r[(size_t) i]))
@@ -250,7 +252,8 @@ static void crashFiles (const juce::File& dir)
         CHECK (finite && s.original->l[0] == 0.0f && s.original->l[1] == 0.0f && s.original->l[3] == 16.0f && s.original->l[5] == 0.5f,
                "float WAV with NaN/inf: values not cleaned as expected");
         CHECK (ok && std::isfinite (s.analysis.bpm) && std::isfinite (s.analysis.bpmConfidence), "float WAV with NaN/inf: analysis not finite");
-        CHECK (loadsFinite (fixtures.getChildFile ("float-nan.wav")), "the fuzzer's float NaN file did not load as finite audio");
+        // The fuzzer's file: only Core Audio reads its header (macOS), JUCE's WAV reader refuses it.
+        CHECK (refusedOrFinite (fixtures.getChildFile ("float-nan.wav")), "the fuzzer's float NaN file loaded non-finite audio");
     }
 
     // Found by fuzzing (macOS): a damaged FLAC that JUCE's decoder refused was handed on to Core
