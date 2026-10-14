@@ -718,6 +718,20 @@ static void stateXml()
         CHECK (ms < 5000.0, "the largest accepted state took %.0f ms to parse", ms);
     }
 
+    // Numbers with absurd exponents in parameter values: JUCE read the exponent into an int with no
+    // bound (undefined behaviour; patches/juce-double-exponent-overflow.patch, UBSan reports it
+    // without the patch).
+    {
+        FlayrChopProcessor p;
+        const auto st = blob ("<FlayrChop><FlayrChop><PARAM id=\"volume\" value=\"1e99999999999\"/><PARAM id=\"filter\" value=\"-1e-99999999999\"/>"
+                              "</FlayrChop><UI bank=\"1e99999999999\"/></FlayrChop>");
+        p.setStateInformation (st.getData(), (int) st.getSize());
+        bool finite = true;
+        for (auto* param : p.getParameters())
+            finite = finite && std::isfinite (param->getValue());
+        CHECK (finite && juce::String ("1e99999999999").getDoubleValue() > 1e300, "absurd exponents");
+    }
+
     // Envelope.
     {
         auto mb = blob (ok);
