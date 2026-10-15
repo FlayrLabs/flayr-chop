@@ -13,6 +13,8 @@ namespace chop::stems::detail {
 
 class SincResampler {
 public:
+    // Throws std::invalid_argument for non-finite or non-positive rates, or a
+    // ratio beyond 256:1 either way (the kernel and tables would be huge).
     SincResampler(double inRate, double outRate);
 
     // out[n] = x(n * inRate / outRate), samples outside [0, inLength) are 0.

@@ -13,21 +13,6 @@ const juce::StringArray kTempoModes { "Original", "Host Sync", "Manual" };
 const juce::StringArray kQuantize { "Off", "1/32", "1/16", "1/8", "1/4", "1/2", "1 Bar" };
 const double kQuantizeBeats[] = { 0.0, 0.125, 0.25, 0.5, 1.0, 2.0, 4.0 };
 
-SourcePtr buildSource (const LoadedSample& s, const std::vector<StereoPtr>& stems, double rate, uint64_t id)
-{
-    auto src = std::make_shared<Source>();
-    src->id = id;
-    src->sampleRate = rate;
-    std::vector<StereoPtr> all (stems.size() + 1);
-    all[0] = s.original;
-    std::copy (stems.begin(), stems.end(), all.begin() + 1);
-    std::vector<StereoPtr> out (all.size());
-    parallelFor ((int) all.size(), [&] (int i) { out[(size_t) i] = resample (*all[(size_t) i], s.fileRate, rate); });
-    src->full = out[0];
-    src->stems.assign (out.begin() + 1, out.end());
-    return src;
-}
-
 // Tempo and key again, from the separated parts: drums for the beat, bass and the rest for the key.
 analysis::Result analyseFromStems (const LoadedSample& s, const std::vector<StereoPtr>& stems, const juce::StringArray& names)
 {
@@ -79,6 +64,24 @@ juce::String padName (int i)
 }
 } // namespace
 
+// The worker's own thread, with a stack size we choose: decoders and parsers run here on files from
+// anywhere, and a std::thread gets the platform's secondary-thread default (512 KB on macOS), which a
+// crafted file once overflowed through JUCE's recursive XML parser.
+class FlayrChopProcessor::JobThread final : private juce::Thread
+{
+public:
+    explicit JobThread (std::function<void()> fn) : juce::Thread ("Flayr Chop worker", 8 * 1024 * 1024), body (std::move (fn))
+    {
+        if (! startThread())
+            throw std::runtime_error ("can't start the worker thread");
+    }
+    ~JobThread() override { waitForThreadToExit (-1); } // jobs stop on cancelJob; never killed
+
+private:
+    void run() override { body(); }
+    std::function<void()> body;
+};
+
 FlayrChopProcessor::FlayrChopProcessor()
     : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "FlayrChop", createLayout())
@@ -96,6 +99,7 @@ FlayrChopProcessor::FlayrChopProcessor()
         rawStemSolo[(size_t) s] = apvts.getRawParameterValue (stemSoloId (s));
     }
     publishPads();
+    refreshStateSnapshot();
     startTimerHz (30);
 #if FLAYR_CHOP_TEST_HOOKS
     // Local UI tests only (never in release builds): load a track at start-up.
@@ -106,10 +110,10 @@ FlayrChopProcessor::FlayrChopProcessor()
 
 FlayrChopProcessor::~FlayrChopProcessor()
 {
+    lifetime.reset(); // queued state restores see this and do nothing
     stopTimer();
     cancelJob = true;
-    if (worker.joinable())
-        worker.join();
+    worker.reset(); // waits for a running job
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout FlayrChopProcessor::createLayout()
@@ -165,10 +169,12 @@ void FlayrChopProcessor::prepareToPlay (double sampleRate, int)
 //==============================================================================
 Globals FlayrChopProcessor::readGlobals() const
 {
+    // Parameters can be set by hosts and automation; a non-finite one must not reach the audio.
+    auto finiteOr = [] (float v, float fallback) { return std::isfinite (v) ? v : fallback; };
     Globals g;
-    g.gain = juce::Decibels::decibelsToGain (rawVolume->load(), -47.9f);
-    g.filter = rawFilter->load() / 100.0f;
-    g.velocity = rawVelocity->load() / 100.0f;
+    g.gain = juce::Decibels::decibelsToGain (finiteOr (rawVolume->load(), 0.0f), -47.9f);
+    g.filter = juce::jlimit (-1.0f, 1.0f, finiteOr (rawFilter->load(), 0.0f) / 100.0f);
+    g.velocity = juce::jlimit (0.0f, 1.0f, finiteOr (rawVelocity->load(), 30.0f) / 100.0f);
     g.mono = rawMono->load() > 0.5f;
     g.keysMode = rawKeys->load() > 0.5f;
     g.keysPad = keysPadAudio.load (std::memory_order_relaxed);
@@ -178,7 +184,7 @@ Globals FlayrChopProcessor::readGlobals() const
         anySolo = anySolo || rawStemSolo[(size_t) s]->load() > 0.5f;
     for (int s = 0; s < kMaxStems; ++s)
     {
-        float v = rawStemLevel[(size_t) s]->load() / 100.0f;
+        float v = juce::jlimit (0.0f, 1.0f, finiteOr (rawStemLevel[(size_t) s]->load(), 100.0f) / 100.0f);
         if (rawStemMute[(size_t) s]->load() > 0.5f || (anySolo && rawStemSolo[(size_t) s]->load() < 0.5f))
             v = 0.0f;
         g.stemGain[(size_t) s] = v;
@@ -188,7 +194,8 @@ Globals FlayrChopProcessor::readGlobals() const
 
 double FlayrChopProcessor::quantizeGridBeats() const
 {
-    const int q = juce::jlimit (0, kQuantize.size() - 1, (int) rawQuantize->load());
+    const float qRaw = rawQuantize->load(); // (int) of a NaN a host set would be undefined
+    const int q = std::isfinite (qRaw) ? juce::jlimit (0, kQuantize.size() - 1, (int) qRaw) : 0;
     return kQuantizeBeats[q];
 }
 
@@ -197,6 +204,10 @@ void FlayrChopProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
     juce::ScopedNoDenormals noDenormals;
     buffer.clear();
     const int n = buffer.getNumSamples();
+    // Only stereo is offered (isBusesLayoutSupported), but a host can still hand over fewer channels
+    // (or an empty block): render nothing rather than write through a channel that isn't there.
+    if (buffer.getNumChannels() < 2 || n <= 0)
+        return;
 
     double bpm = 0.0, ppq = 0.0;
     bool playing = false, hasPpq = false;
@@ -212,6 +223,14 @@ void FlayrChopProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
                 hasPpq = true;
             }
         }
+    // Host values can be anything (NaN, infinite, absurd): treat those as unknown.
+    if (! std::isfinite (bpm) || bpm < 0.0 || bpm > 1000.0)
+        bpm = 0.0;
+    if (! std::isfinite (ppq))
+    {
+        hasPpq = false;
+        ppq = 0.0;
+    }
     hostBpm.store (bpm, std::memory_order_relaxed);
     hostPlaying.store (playing, std::memory_order_relaxed);
     const bool canQuantize = playing && hasPpq && bpm > 0.0;
@@ -285,6 +304,10 @@ void FlayrChopProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
         cursor = at;
         const auto msg = meta.getMessage();
 
+        // AU's legacy MIDI callback hands over raw bytes, so a note number can be up to 255.
+        if ((msg.isNoteOn() || msg.isNoteOff()) && ! juce::isPositiveAndBelow (msg.getNoteNumber(), (int) held.size()))
+            continue;
+
         if (msg.isNoteOn())
         {
             const int note = msg.getNoteNumber();
@@ -346,6 +369,25 @@ void FlayrChopProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
     }
     firePendingUntil (n);
     renderTo (cursor, n);
+
+    // Last line of defence for the host: never hand it NaN, inf or a blast. Anything non-finite is
+    // silenced and the filter state (where it would otherwise stick) starts over.
+    bool nonFinite = false;
+    for (int ch = 0; ch < 2; ++ch)
+    {
+        float* x = ch == 0 ? L : R;
+        for (int i = 0; i < n; ++i)
+        {
+            if (! std::isfinite (x[i]))
+            {
+                x[i] = 0.0f;
+                nonFinite = true;
+            }
+            x[i] = juce::jlimit (-4.0f, 4.0f, x[i]);
+        }
+    }
+    if (nonFinite)
+        sampler.resetFilter();
 
     // The playhead rides along with the pad that's playing, and stays where it stopped.
     if (! sampler.isPreviewing())
@@ -467,6 +509,8 @@ void FlayrChopProcessor::clearPads (int firstPad, int count)
 
 void FlayrChopProcessor::setSampleBpm (double bpm, bool fromUser)
 {
+    if (! std::isfinite (bpm)) // jlimit passes NaN through
+        return;
     sampleBpm = juce::jlimit (20.0, 400.0, bpm);
     bpmFromUser = bpmFromUser || fromUser;
     sendChangeMessage();
@@ -480,19 +524,27 @@ void FlayrChopProcessor::setSampleKey (int key, bool minor, bool fromUser)
     sendChangeMessage();
 }
 
+// The key shift parameter as a finite, in-range number of semitones (a host can set any float).
+static float keyShiftOf (const juce::AudioProcessorValueTreeState& apvts)
+{
+    const float k = apvts.getRawParameterValue ("keyShift")->load();
+    return std::isfinite (k) ? juce::jlimit (-24.0f, 24.0f, k) : 0.0f;
+}
+
 int FlayrChopProcessor::getTargetKey() const
 {
-    const int shift = (int) apvts.getRawParameterValue ("keyShift")->load();
+    const int shift = (int) keyShiftOf (apvts);
     return (((sampleKey + shift) % 12) + 12) % 12;
 }
 
 double FlayrChopProcessor::getTargetBpm() const
 {
-    const int mode = (int) apvts.getRawParameterValue ("tempoMode")->load();
+    const float modeRaw = apvts.getRawParameterValue ("tempoMode")->load();
+    const int mode = std::isfinite (modeRaw) ? juce::jlimit (0, 2, (int) modeRaw) : 0;
     if (mode == 1)
     {
         const double host = hostBpm.load();
-        if (host <= 0.0)
+        if (! (host > 0.0) || ! std::isfinite (host)) // NaN fails every comparison: test for the good case
             return sampleBpm;
         // Half/double-time aware: follow the host at whichever octave is closest to the sample.
         double best = host;
@@ -502,13 +554,19 @@ double FlayrChopProcessor::getTargetBpm() const
         return best;
     }
     if (mode == 2)
-        return apvts.getRawParameterValue ("tempo")->load();
+    {
+        const double tempo = apvts.getRawParameterValue ("tempo")->load();
+        return std::isfinite (tempo) && tempo > 0.0 ? tempo : sampleBpm;
+    }
     return sampleBpm;
 }
 
 double FlayrChopProcessor::getSpeed() const
 {
-    return sampleBpm > 0.0 ? juce::jlimit (0.25, 4.0, getTargetBpm() / sampleBpm) : 1.0;
+    const double target = getTargetBpm();
+    if (! (sampleBpm > 0.0) || ! std::isfinite (target) || ! (target > 0.0))
+        return 1.0;
+    return juce::jlimit (0.25, 4.0, target / sampleBpm);
 }
 
 RenderSettings FlayrChopProcessor::currentRenderSettings() const
@@ -516,7 +574,7 @@ RenderSettings FlayrChopProcessor::currentRenderSettings() const
     RenderSettings s;
     s.source = source;
     s.speed = getSpeed();
-    s.semis = (float) apvts.getRawParameterValue ("keyShift")->load();
+    s.semis = keyShiftOf (apvts);
     s.hqStretch = apvts.getRawParameterValue ("stretch")->load() > 0.5f;
     s.formant = apvts.getRawParameterValue ("formant")->load() > 0.5f;
     return s;
@@ -526,48 +584,166 @@ RenderSettings FlayrChopProcessor::currentRenderSettings() const
 void FlayrChopProcessor::runJob (std::function<void()> job)
 {
     cancelJob = true;
-    if (worker.joinable())
-        worker.join();
+    worker.reset();
     cancelJob = false;
-    worker = std::thread (std::move (job));
+    // An exception escaping a thread would std::terminate the host (and the user's whole session),
+    // so every job ends here: whatever went wrong becomes a status message.
+    auto run = [this, body = std::move (job)] {
+        juce::String error;
+        try
+        {
+            body();
+            return;
+        }
+        catch (const std::bad_alloc&)
+        {
+            error = "Not enough memory for that file";
+        }
+        catch (const std::exception& e)
+        {
+            error = "Something went wrong: " + juce::String (e.what());
+        }
+        catch (...)
+        {
+            error = "Something went wrong";
+        }
+        std::lock_guard<std::mutex> lock (inboxMutex);
+        inbox.push_back ([this, error] {
+            busy = Busy::None;
+            status = error;
+            sendChangeMessage();
+        });
+    };
+    try
+    {
+        worker = std::make_unique<JobThread> (std::move (run));
+    }
+    catch (...) // no thread: the job doesn't run, and the user hears why
+    {
+        busy = Busy::None;
+        status = "Couldn't start a background job";
+        sendChangeMessage();
+    }
 }
 
 void FlayrChopProcessor::loadFile (const juce::File& file)
 {
-    // A relink while a restored project waits: the project now saves with the new path.
+    // A relink while a restored project waits: the project now saves with the new path (and the old
+    // library copy no longer belongs to it).
     if (pendingPadState != nullptr)
+    {
         pendingPadState->setProperty ("path", file.getFullPathName(), nullptr);
+        pendingPadState->removeProperty ("libraryPath", nullptr);
+    }
+    loadCandidates (file, { file }, {});
+}
+
+// Restoring a project: the original path first, then its library copy. Paths from the project that
+// point at another machine, or hide where they point ('..', repeated separators, device names), are
+// never touched, not even checked for existence (see isSafeProjectPath); the user can relink by hand.
+void FlayrChopProcessor::restoreSample (const juce::String& path, const juce::String& libraryPath)
+{
+    const bool absolute = juce::File::isAbsolutePath (path);
+    const auto original = absolute ? juce::File (path) : juce::File();
+    std::vector<juce::File> candidates;
+    if (isSafeProjectPath (path))
+        candidates.push_back (original);
+    juce::File library;
+    if (isSafeProjectPath (libraryPath))
+        if (const juce::File f (libraryPath); f.isAChildOf (sampleLibraryFolder()))
+            library = f;
+    if (library != juce::File())
+        candidates.push_back (library);
+
+    if (candidates.empty())
+    {
+        // A load still running belongs to the old project: drop its result, it must not take this one's pads.
+        ++loadGeneration;
+        if (busy == Busy::Loading)
+        {
+            cancelJob = true;
+            busy = Busy::None;
+        }
+        // Keep everything so a relink restores the project as it was.
+        missingFile = original;
+        status = "Missing file: " + path;
+        if (absolute && ! isSafeProjectPath (path))
+            status << "  (network locations aren't opened automatically: drop the file here to relink)";
+        sendChangeMessage();
+        return;
+    }
+    loadCandidates (original, candidates, library);
+}
+
+void FlayrChopProcessor::loadCandidates (const juce::File& original, std::vector<juce::File> candidates,
+                                         const juce::File& knownLibraryCopy)
+{
+    const auto generation = ++loadGeneration;
     busy = Busy::Loading;
-    status = "Loading " + file.getFileName() + "...";
+    status = "Loading " + original.getFileName() + "...";
     progress = 0.0f;
     sendChangeMessage();
     const double rate = hostRate.load() > 0.0 ? hostRate.load() : 48000.0;
 
-    runJob ([this, file, rate] {
+    runJob ([this, original, candidates, knownLibraryCopy, rate, generation] {
         auto loaded = std::make_shared<LoadedSample>();
         juce::String error;
-        if (! loadSample (file, *loaded, error, [this] { return cancelJob.load(); }))
+        bool ok = false;
+        for (const auto& f : candidates)
         {
+            juce::String why;
+            if (loadSample (f, *loaded, why, [this] { return cancelJob.load(); }))
+            {
+                ok = true;
+                break;
+            }
+            if (error.isEmpty())
+                error = why;
+            if (cancelJob)
+                break;
+        }
+        if (! ok)
+        {
+            const bool gone = isSafeProjectPath (original.getFullPathName()) && ! original.existsAsFile();
             std::lock_guard<std::mutex> lock (inboxMutex);
-            inbox.push_back ([this, error, file] {
+            inbox.push_back ([this, error, original, gone, generation] {
+                if (generation != loadGeneration)
+                    return; // a newer load owns the model (and the pending restore) now
                 busy = Busy::None;
-                status = error;
+                status = gone ? "Missing file: " + original.getFullPathName() : error;
                 if (sample == nullptr && error.isNotEmpty())
-                    missingFile = file;
+                    missingFile = original;
                 sendChangeMessage();
             });
             return;
         }
+
+        // A library copy, so a sandboxed host can read the sample next time too (see libraryCopyOf).
+        // The project's own copy is only a hint: libraryCopyOf reuses it after checking it's a plain
+        // file with this audio (a size match alone let a replaced or linked file stand in).
+        juce::ignoreUnused (knownLibraryCopy);
+        juce::File library;
+        if (isInLibrary (loaded->file)) // already somewhere hosts can read: no copy needed
+            library = loaded->file.isAChildOf (sampleLibraryFolder()) && isPlainFile (loaded->file) ? loaded->file : juce::File();
+        else
+            library = libraryCopyOf (loaded->file, [this] { return cancelJob.load(); });
+        loaded->cacheFile = library != juce::File() ? library : loaded->file;
+
         std::vector<StereoPtr> stems;
         juce::StringArray names;
-        loadCachedStems (file, loaded->original->size(), stems, names);
+        if (! loadCachedStems (loaded->cacheFile, loaded->original->size(), stems, names) && loaded->cacheFile != loaded->file)
+            loadCachedStems (loaded->file, loaded->original->size(), stems, names);
         const auto id = (uint64_t) juce::Time::currentTimeMillis();
         auto src = buildSource (*loaded, stems, rate, id);
         const auto refined = stems.empty() ? analysis::Result {} : analyseFromStems (*loaded, stems, names);
 
         std::lock_guard<std::mutex> lock (inboxMutex);
-        inbox.push_back ([this, loaded, names, src, rate, refined] {
+        inbox.push_back ([this, loaded, names, src, rate, refined, original, library, generation] {
+            if (generation != loadGeneration)
+                return; // an older load finishing late must not consume a newer pending restore
             applyLoaded (loaded, pendingPadState != nullptr);
+            sampleOriginal = original;
+            sampleLibrary = library;
             applyRefined (loaded, refined);
             stemNames = names;
             source = src;
@@ -648,7 +824,11 @@ static bool downloadModel (const std::string& path, std::atomic<float>& progress
 {
     const juce::File dest { juce::String (path) };
     dest.getParentDirectory().createDirectory();
-    const auto tmp = dest.getSiblingFile (dest.getFileName() + ".part");
+    // A temp file of our own in the same folder (so the final move is a rename): several plug-in
+    // instances can download at once, and they used to write into one shared ".part".
+    removeStalePartFiles (dest.getParentDirectory(), dest.getFileName() + ".");
+    const auto tmp = dest.getSiblingFile (dest.getFileName() + "." + juce::Uuid().toString() + ".part");
+    const juce::int64 expected = stems::defaultModelSize();
     int status = 0;
     auto stream = juce::URL (stems::defaultModelUrl())
                       .createInputStream (juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
@@ -664,7 +844,12 @@ static bool downloadModel (const std::string& path, std::atomic<float>& progress
         return false;
     }
     const auto total = stream->getTotalLength();
-    tmp.deleteFile();
+    if (total > 0 && total != expected)
+    {
+        error = "the download server sent an unexpected file (" + juce::String (total) + " bytes)";
+        return false;
+    }
+    juce::int64 done = 0;
     {
         juce::FileOutputStream out (tmp);
         if (out.failedToOpen())
@@ -673,34 +858,47 @@ static bool downloadModel (const std::string& path, std::atomic<float>& progress
             return false;
         }
         juce::HeapBlock<char> buf (1 << 16);
-        juce::int64 done = 0;
         while (! stream->isExhausted())
         {
             if (cancel)
             {
                 out.flush();
-                tmp.deleteFile();
                 error = "cancelled";
-                return false;
+                break;
             }
             const int n = stream->read (buf.get(), 1 << 16);
             if (n <= 0)
                 break;
-            out.write (buf.get(), (size_t) n);
             done += n;
-            if (total > 0)
-                progress = (float) done / (float) total;
+            if (done > expected)
+            {
+                error = "the download is bigger than the model should be";
+                break;
+            }
+            if (! out.write (buf.get(), (size_t) n))
+            {
+                error = "can't write " + tmp.getFullPathName();
+                break;
+            }
+            progress = (float) done / (float) expected;
         }
     }
-    const auto hash = juce::SHA256 (tmp).toHexString();
-    if (! hash.equalsIgnoreCase (stems::defaultModelSha256()))
+    if (error.isEmpty() && done != expected)
+        error = "the download was incomplete";
+    if (error.isEmpty() && ! juce::SHA256 (tmp).toHexString().equalsIgnoreCase (stems::defaultModelSha256()))
+        error = "the downloaded model failed its checksum";
+    if (error.isNotEmpty())
     {
         tmp.deleteFile();
-        error = "the downloaded model failed its checksum";
         return false;
     }
-    dest.deleteFile();
-    return tmp.moveFileTo (dest);
+    if (! tmp.moveFileTo (dest))
+    {
+        tmp.deleteFile();
+        error = "can't move the model into " + dest.getParentDirectory().getFullPathName();
+        return false;
+    }
+    return true;
 }
 
 void FlayrChopProcessor::applyRefined (const std::shared_ptr<LoadedSample>& s, const analysis::Result& r)
@@ -735,7 +933,16 @@ void FlayrChopProcessor::separateStems()
 {
     if (sample == nullptr || busy != Busy::None)
         return;
-    const auto modelPath = stems::defaultModelPath();
+    auto modelPath = stems::defaultModelPath();
+    if (modelPath.empty()) // no HOME / APPDATA in the host's environment: ask the OS instead
+        modelPath = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+#if JUCE_MAC
+                        .getChildFile ("Application Support")
+#endif
+                        .getChildFile ("Flayr Chop/models")
+                        .getChildFile (stems::defaultModelFileName())
+                        .getFullPathName()
+                        .toStdString();
     const bool needModel = ! stems::modelAvailable (modelPath);
     busy = Busy::Separating;
     progress = 0.0f;
@@ -790,7 +997,7 @@ void FlayrChopProcessor::separateStems()
             stemBufs.push_back (st);
             names.add (sep.names[i]);
         }
-        saveCachedStems (s->file, s->fileRate, stemBufs, names);
+        saveCachedStems (s->cacheFile, s->fileRate, stemBufs, names);
         auto src = buildSource (*s, stemBufs, rate, (uint64_t) juce::Time::currentTimeMillis());
         const auto refined = analyseFromStems (*s, stemBufs, names);
 
@@ -821,7 +1028,8 @@ void FlayrChopProcessor::removeStems()
 {
     if (sample == nullptr || busy != Busy::None)
         return;
-    stemCacheFolder (sample->file).deleteRecursively();
+    stemCacheFolder (sample->cacheFile).deleteRecursively();
+    stemCacheFolder (sample->file).deleteRecursively(); // older caches were keyed on the file read
     stemNames.clear();
     numStemsAudio = 0;
     auto s = std::make_shared<Source> (*source);
@@ -842,6 +1050,13 @@ void FlayrChopProcessor::timerCallback()
     for (auto& f : todo)
         f();
 
+    // Saves from other threads read this snapshot; a few times a second keeps it current.
+    if (! todo.empty() || ++snapshotTicks >= 3)
+    {
+        snapshotTicks = 0;
+        refreshStateSnapshot();
+    }
+
     // The host changed sample rate: rebuild the source at the new rate.
     const double rate = hostRate.load();
     if (sample != nullptr && rate > 0.0 && source != nullptr && std::abs (sourceRate - rate) > 1e-6 && busy == Busy::None)
@@ -852,7 +1067,7 @@ void FlayrChopProcessor::timerCallback()
             // Stems at the file's rate live in the on-disk cache, not in memory.
             std::vector<StereoPtr> st;
             juce::StringArray names;
-            loadCachedStems (s->file, s->original->size(), st, names);
+            loadCachedStems (s->cacheFile, s->original->size(), st, names);
             auto src = buildSource (*s, st, rate, (uint64_t) juce::Time::currentTimeMillis());
             std::lock_guard<std::mutex> lock (inboxMutex);
             inbox.push_back ([this, src, rate, s] {
@@ -1253,15 +1468,59 @@ bool FlayrChopProcessor::exportAll (const juce::File& folder, bool withStems)
 }
 
 //==============================================================================
+static bool onMessageThread()
+{
+    const auto* mm = juce::MessageManager::getInstanceWithoutCreating();
+    return mm == nullptr || mm->isThisTheMessageThread();
+}
+
+// Hosts may save and restore from any thread, but the model (sample, pads, status, the pending
+// restore) belongs to the message thread. The message thread keeps a snapshot of it for saves from
+// elsewhere; parameters come from the thread-safe apvts.copyState().
+void FlayrChopProcessor::refreshStateSnapshot()
+{
+    auto sampleTree = buildSampleState();
+    auto uiTree = buildUiState();
+    std::lock_guard<std::mutex> lock (stateMutex);
+    snapshotSample = sampleTree;
+    snapshotUi = uiTree;
+}
+
 void FlayrChopProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
+    juce::ValueTree sampleTree, uiTree;
+    if (onMessageThread())
+        refreshStateSnapshot();
+    {
+        std::lock_guard<std::mutex> lock (stateMutex);
+        // Restored from another thread and not applied yet: that state is the project.
+        if (pendingState != nullptr)
+        {
+            destData = *pendingState;
+            return;
+        }
+        sampleTree = snapshotSample.createCopy();
+        uiTree = snapshotUi.createCopy();
+    }
+
     juce::ValueTree root ("FlayrChop");
     root.setProperty ("version", JucePlugin_VersionString, nullptr);
     root.appendChild (apvts.copyState(), nullptr);
+    root.appendChild (sampleTree, nullptr);
+    root.appendChild (uiTree, nullptr);
+    if (auto xml = root.createXml())
+        copyXmlToBinary (*xml, destData);
+}
 
+juce::ValueTree FlayrChopProcessor::buildSampleState() const
+{
     juce::ValueTree s ("Sample");
-    const auto file = sample ? sample->file : missingFile;
+    // "path" stays the file the user chose (older versions read only this); "libraryPath" is the copy
+    // a sandboxed host can always read (see libraryCopyOf).
+    const auto file = sample ? sampleOriginal : missingFile;
     s.setProperty ("path", file.getFullPathName(), nullptr);
+    if (sample != nullptr && sampleLibrary != juce::File())
+        s.setProperty ("libraryPath", sampleLibrary.getFullPathName(), nullptr);
     s.setProperty ("bpm", sampleBpm, nullptr);
     s.setProperty ("firstBeat", sampleFirstBeat, nullptr);
     s.setProperty ("key", sampleKey, nullptr);
@@ -1292,57 +1551,253 @@ void FlayrChopProcessor::getStateInformation (juce::MemoryBlock& destData)
         s.appendChild (t, nullptr);
     }
     // A restored project not applied yet (sample missing or still loading) saves as it came in.
-    root.appendChild (pendingPadState != nullptr ? pendingPadState->createCopy() : s, nullptr);
+    return pendingPadState != nullptr ? pendingPadState->createCopy() : s;
+}
 
+juce::ValueTree FlayrChopProcessor::buildUiState() const
+{
     juce::ValueTree ui ("UI");
     ui.setProperty ("selected", selectedPad, nullptr);
     ui.setProperty ("bank", bank, nullptr);
     ui.setProperty ("chopMode", chopModeUI, nullptr);
     ui.setProperty ("chopCount", chopCountUI, nullptr);
     ui.setProperty ("snap", snapUI, nullptr);
-    root.appendChild (ui, nullptr);
+    return ui;
+}
 
-    if (auto xml = root.createXml())
-        copyXmlToBinary (*xml, destData);
+// Project state comes from files anyone can hand out, and JUCE's XmlDocument recurses per element and
+// expands <!DOCTYPE>/<!ENTITY> definitions recursively, so a crafted state could exhaust the stack.
+// The checks run on exactly the characters XmlDocument would read and only ever over-count:
+//  - the envelope as copyXmlToBinary writes it, the declared length (which getXmlFromBinary uses),
+//    no NUL inside it (getXmlFromBinary would stop there) and valid UTF-8;
+//  - every '<' not followed by '/' counts as an element, wherever it is (attribute values, text,
+//    unterminated quotes: nothing changes the count, and nothing ever decrements it), so the total
+//    bounds the nesting XmlDocument can reach no matter how it reads the text;
+//  - no '<!' at all (DTDs, entities, comments, CDATA), and '<?' only as the leading declaration;
+//  - after parsing, the tree's real depth is checked without recursion before ValueTree::fromXml
+//    (which recurses too) sees it.
+std::unique_ptr<juce::XmlElement> FlayrChopProcessor::parseState (const void* data, int sizeInBytes)
+{
+    constexpr juce::uint32 magicXmlNumber = 0x21324356; // AudioProcessor::copyXmlToBinary
+    if (data == nullptr || sizeInBytes <= 8 || sizeInBytes > kMaxStateBytes)
+        return {};
+    const auto* bytes = static_cast<const char*> (data);
+    if (juce::ByteOrder::littleEndianInt (bytes) != magicXmlNumber)
+        return {};
+    const auto declared = (juce::int64) juce::ByteOrder::littleEndianInt (bytes + 4);
+    if (declared <= 0 || declared > sizeInBytes - 8)
+        return {};
+    const int length = (int) declared;
+    const char* text = bytes + 8;
+    if (std::memchr (text, 0, (size_t) length) != nullptr || ! juce::CharPointer_UTF8::isValidString (text, length))
+        return {};
+
+    const auto xmlText = juce::String::fromUTF8 (text, length);
+    int elements = 0, entities = 0, equals = 0;
+    bool atStart = true;
+    juce::juce_wchar previous = 0;
+    for (auto p = xmlText.getCharPointer();;)
+    {
+        const auto c = p.getAndAdvance();
+        if (c == 0)
+            break;
+        if (c == '<')
+        {
+            const auto next = *p;
+            if (next == '!' || (next == '?' && ! atStart))
+                return {};
+            if (next != '/' && next != '?' && ++elements > kMaxStateElements)
+                return {};
+        }
+        // JUCE's parser appends entity by entity and interns every attribute name in a global pool,
+        // both slow enough per item that floods of them stall a host: bounded well above any project.
+        if ((c == '&' && ++entities > kMaxStateEntities) || (c == '=' && ++equals > kMaxStateAttributes))
+            return {};
+        // Attributes named "base64:..." are decoded into binary by ValueTree::fromXml, sized by a
+        // number in the attribute itself. This version never writes them.
+        if (c == 'b' && juce::CharacterFunctions::isWhitespace (previous) && p.compareUpTo (juce::CharPointer_ASCII ("ase64:"), 6) == 0)
+            return {};
+        previous = c;
+        atStart = false;
+    }
+
+    auto xml = juce::parseXML (xmlText);
+    if (xml == nullptr)
+        return {};
+    // The limits again on the tree JUCE actually built (the pre-scan above only has to keep the parse
+    // itself cheap; this is what ValueTree::fromXml, which recurses, will see): depth, element and
+    // attribute counts, and no attribute name with ':' (fromXml decodes "base64:..." names as binary,
+    // sized by the value; JUCE reads a name straight after a closing quote, with no space before it).
+    int numElements = 0, numAttributes = 0;
+    std::vector<std::pair<const juce::XmlElement*, int>> stack { { xml.get(), 1 } };
+    while (! stack.empty())
+    {
+        const auto [e, depth] = stack.back();
+        stack.pop_back();
+        if (depth > kMaxStateDepth || ++numElements > kMaxStateElements)
+            return {};
+        for (int i = 0; i < e->getNumAttributes(); ++i)
+            if (++numAttributes > kMaxStateAttributes || e->getAttributeName (i).containsChar (':'))
+                return {};
+        for (const auto* child : e->getChildIterator())
+            stack.push_back ({ child, depth + 1 });
+    }
+    return xml;
 }
 
 void FlayrChopProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
-    if (sizeInBytes <= 0 || sizeInBytes > (1 << 20))
-        return; // far bigger than any real project state
-    const auto xml = getXmlFromBinary (data, sizeInBytes);
+    // A host calls this with whatever a project file holds: nothing may escape into the host (an
+    // allocation failing inside JUCE's XML or ValueTree code would otherwise end the host process).
+    try
+    {
+        restoreState (data, sizeInBytes);
+    }
+    catch (...)
+    {
+        if (onMessageThread()) // the status belongs to the message thread
+            status = "This project's Flayr Chop state couldn't be read";
+    }
+}
+
+void FlayrChopProcessor::restoreState (const void* data, int sizeInBytes)
+{
+    auto xml = parseState (data, sizeInBytes); // pure: fine on any thread
     if (xml == nullptr)
         return;
-    const auto root = juce::ValueTree::fromXml (*xml);
+    if (onMessageThread())
+    {
+        {
+            std::lock_guard<std::mutex> lock (stateMutex);
+            pendingState.reset();
+            ++stateGeneration;
+        }
+        applyState (*xml);
+        return;
+    }
+
+    // Another thread: keep the blob (a save before it's applied returns it unchanged) and apply it
+    // on the message thread, unless a newer restore or this processor's destruction comes first.
+    uint64_t generation = 0;
+    {
+        std::lock_guard<std::mutex> lock (stateMutex);
+        pendingState = std::make_unique<juce::MemoryBlock> (data, (size_t) sizeInBytes);
+        generation = ++stateGeneration;
+    }
+    std::shared_ptr<const juce::XmlElement> parsed (xml.release());
+    juce::MessageManager::callAsync ([this, alive = std::weak_ptr<int> (lifetime), parsed, generation] {
+        if (alive.expired())
+            return;
+        {
+            std::lock_guard<std::mutex> lock (stateMutex);
+            if (stateGeneration != generation)
+                return;
+            pendingState.reset();
+        }
+        try
+        {
+            applyState (*parsed);
+        }
+        catch (...) // same as setStateInformation: never into the message loop
+        {
+            status = "This project's Flayr Chop state couldn't be read";
+        }
+    });
+}
+
+// A restored project is kept (and saved back) until its sample loads, and the parameter tree is
+// saved back as restored, so both are rebuilt from only what this version reads: one element per pad
+// or parameter, known properties, bounded values. Otherwise extra elements or a huge unknown attribute
+// in an accepted project could save back into a state the next reopen refuses (losing the project).
+namespace
+{
+constexpr int kMaxPathChars = 32767;  // the longest path any supported OS allows
+constexpr int kMaxValueChars = 64;    // numbers and flags
+
+void copyProperties (const juce::ValueTree& from, juce::ValueTree& to, std::initializer_list<const char*> names, int maxChars)
+{
+    for (auto* name : names)
+        if (from.hasProperty (name))
+            if (const auto v = from.getProperty (name); v.toString().length() <= maxChars)
+                to.setProperty (name, v, nullptr);
+}
+} // namespace
+
+juce::ValueTree FlayrChopProcessor::cleanSampleState (const juce::ValueTree& s)
+{
+    if (! s.isValid())
+        return {};
+    juce::ValueTree out ("Sample");
+    copyProperties (s, out, { "path", "libraryPath" }, kMaxPathChars);
+    copyProperties (s, out, { "bpm", "firstBeat", "key", "minor", "bpmFromUser", "keyFromUser" }, kMaxValueChars);
+    // The same lookup applyLoaded() makes: the first element whose index matches each pad.
+    for (int i = 0; i < kNumPads; ++i)
+        if (const auto t = s.getChildWithProperty ("index", i); t.isValid() && t.hasType ("Pad"))
+        {
+            juce::ValueTree pad ("Pad");
+            pad.setProperty ("index", i, nullptr);
+            copyProperties (t, pad, { "cue", "end", "gain", "pan", "keyShift", "tape", "stretch", "filter", "favorite", "attack", "release",
+                                      "mode", "reverse", "choke", "stems" },
+                            kMaxValueChars);
+            out.appendChild (pad, nullptr);
+        }
+    return out;
+}
+
+juce::ValueTree FlayrChopProcessor::cleanParameterState (const juce::ValueTree& params) const
+{
+    if (! params.isValid())
+        return {};
+    juce::ValueTree out (params.getType());
+    std::set<juce::String> seen;
+    for (const auto& child : params)
+    {
+        const auto id = child.getProperty ("id").toString();
+        if (child.hasType ("PARAM") && apvts.getParameter (id) != nullptr && seen.insert (id).second)
+        {
+            juce::ValueTree p ("PARAM");
+            p.setProperty ("id", id, nullptr);
+            copyProperties (child, p, { "value" }, kMaxValueChars);
+            out.appendChild (p, nullptr);
+        }
+    }
+    return out;
+}
+
+void FlayrChopProcessor::applyState (const juce::XmlElement& xml)
+{
+    const auto root = juce::ValueTree::fromXml (xml);
     if (! root.hasType ("FlayrChop"))
         return;
 
-    const auto params = root.getChildWithName (apvts.state.getType());
+    const auto params = cleanParameterState (root.getChildWithName (apvts.state.getType()));
     if (params.isValid())
+    {
         apvts.replaceState (params);
+        // value="nan" (or inf) survives the parameter's range clamp; put such parameters back to default.
+        for (auto* param : getParameters())
+            if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (param))
+                if (const auto* raw = apvts.getRawParameterValue (ranged->getParameterID());
+                    ! std::isfinite (ranged->getValue()) || (raw != nullptr && ! std::isfinite (raw->load())))
+                    ranged->setValueNotifyingHost (ranged->getDefaultValue());
+    }
 
     const auto ui = root.getChildWithName ("UI");
     selectedPad = juce::jlimit (0, kNumPads - 1, (int) ui.getProperty ("selected", 0));
     bank = juce::jlimit (0, kNumBanks - 1, (int) ui.getProperty ("bank", 0));
-    chopModeUI = juce::jlimit (0, 4, (int) ui.getProperty ("chopMode", 0));
+    chopModeUI = juce::jlimit (0, 7, (int) ui.getProperty ("chopMode", 0)); // the menu has 8 modes
     chopCountUI = juce::jlimit (4, 64, (int) ui.getProperty ("chopCount", 16));
     snapUI = ui.getProperty ("snap", true);
 
-    const auto s = root.getChildWithName ("Sample");
-    const juce::File file (s.getProperty ("path").toString());
-    if (s.isValid() && file != juce::File())
+    const auto s = cleanSampleState (root.getChildWithName ("Sample"));
+    const auto path = s.getProperty ("path").toString();
+    if (s.isValid() && path.isNotEmpty())
     {
+        // Kept until the sample loads, so a relink (or a save meanwhile) restores the project as it was.
         pendingPadState = std::make_unique<juce::ValueTree> (s.createCopy());
-        if (file.existsAsFile())
-            loadFile (file);
-        else
-        {
-            // Keep everything so a relink (or the file coming back) restores the project as it was.
-            missingFile = file;
-            status = "Missing file: " + file.getFullPathName();
-            sendChangeMessage();
-        }
+        restoreSample (path, s.getProperty ("libraryPath").toString());
     }
+    refreshStateSnapshot();
 }
 
 juce::AudioProcessorEditor* FlayrChopProcessor::createEditor() { return new FlayrChopEditor (*this); }

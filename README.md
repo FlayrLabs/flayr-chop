@@ -89,8 +89,22 @@ project doesn't separate again.
 The plug-in takes your computer keyboard while you're working in it; click your DAW to give it
 back.
 
-Projects remember the file path, cues, pad settings and detected tempo and key. If you move the
-file, drop it on the plug-in again to relink.
+Projects remember the file path, cues, pad settings and detected tempo and key. Every sample you
+load also gets a copy in `Music/Flayr Chop/Samples` (a clone that takes no extra space where the
+disk supports it, and one copy per sound however often you use it), so projects reopen even in
+hosts that only let plug-ins read a few folders, such as Logic. If both the file and its copy are
+gone, drop the file on the plug-in again to relink. Samples on network shares are never opened
+automatically when a project loads; drop them on the plug-in to relink.
+
+**Where Flayr Chop keeps files, and how to clear them.** On every platform the copies in
+`Music/Flayr Chop/Samples` stay until you delete them, and on Windows and Linux (no clones) each one
+takes the full size of the sample. Projects store the copy's path, whose name is a SHA-256 checksum
+of the audio. Delete the folder whenever you like: projects whose original files are still in
+place just make a new copy the next time they load. Separated stems are cached per sample (macOS
+`~/Library/Application Support/Flayr Chop/stems`, Windows `%APPDATA%\Flayr Chop\stems`, Linux
+`~/.config/Flayr Chop/stems`) and can be deleted the same way: stems are separated again when needed.
+The stem model is in `Flayr Chop/models` (macOS `~/Library/Application Support`, Windows `%APPDATA%`,
+Linux `~/.local/share` or `$XDG_DATA_HOME`).
 
 ## Building from source
 

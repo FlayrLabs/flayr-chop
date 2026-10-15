@@ -1,0 +1,60 @@
+Flayr Tune patch for JUCE 8.0.16-security (ea77444750de45e036e0279bb0291144bf8e3688).
+
+State checks in the AU and LV2 wrappers, which handle a project's state before
+the plug-in does:
+  * AU RestoreState: the class-info property list must be a CFDictionary
+    (it was copied as one unchecked), and the "jucePluginState" value must be
+    CFData no larger than INT_MAX (any other CF type was read as CFData).
+  * LV2 retrieve: if the base64 session state doesn't decode (see
+    juce-base64-declared-size.patch), or decodes to more than INT_MAX bytes,
+    report an error instead of passing a truncated size on.
+
+Applied by CMakeLists.txt via FetchContent PATCH_COMMAND.
+
+Flayr-Patch-Marker: modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm FLAYR_PATCH juce-wrapper-state-checks
+Flayr-Patch-Marker: modules/juce_audio_plugin_client/juce_audio_plugin_client_LV2.cpp FLAYR_PATCH juce-wrapper-state-checks
+
+diff --git a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm
+index 68c8f3c09e..34d1080947 100644
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_AU_1.mm
+@@ -868,6 +868,10 @@ ComponentResult RestoreState (CFPropertyListRef inData) override
+     {
+         const ScopedValueSetter<bool> scope { restoringState, true };
+ 
++        // FLAYR_PATCH juce-wrapper-state-checks: the state comes from a project file; don't assume its types.
++        if (inData == nullptr || CFGetTypeID (inData) != CFDictionaryGetTypeID())
++            return kAudioUnitErr_InvalidPropertyValue;
++
+         {
+             // Remove the data entry from the state to prevent the superclass loading the parameters
+             CFUniquePtr<CFMutableDictionaryRef> copyWithoutData (CFDictionaryCreateMutableCopy (nullptr, 0, (CFDictionaryRef) inData));
+@@ -910,7 +914,9 @@ ComponentResult RestoreState (CFPropertyListRef inData) override
+ 
+             if (valuePresent)
+             {
+-                if (data != nullptr)
++                // Flayr patch: only CFData, and only sizes an int can hold.
++                if (data != nullptr && CFGetTypeID (data) == CFDataGetTypeID()
++                    && CFDataGetLength (data) <= (CFIndex) std::numeric_limits<int>::max())
+                 {
+                     const int numBytes = (int) CFDataGetLength (data);
+                     const juce::uint8* const rawBytes = CFDataGetBytePtr (data);
+diff --git a/modules/juce_audio_plugin_client/juce_audio_plugin_client_LV2.cpp b/modules/juce_audio_plugin_client/juce_audio_plugin_client_LV2.cpp
+index 7ab90b41c1..e9bf668c38 100644
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_LV2.cpp
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_LV2.cpp
+@@ -791,7 +791,12 @@ public:
+ 
+         String text (static_cast<const char*> (data), (size_t) size);
+         MemoryBlock block;
+-        block.fromBase64Encoding (text);
++
++        // FLAYR_PATCH juce-wrapper-state-checks: fromBase64Encoding now refuses a byte count the text can't fill;
++        // also never pass a size an int can't hold.
++        if (! block.fromBase64Encoding (text) || block.getSize() > (size_t) std::numeric_limits<int>::max())
++            return LV2_STATE_ERR_UNKNOWN;
++
+         processor->setStateInformation (block.getData(), (int) block.getSize());
+ 
+         return LV2_STATE_SUCCESS;

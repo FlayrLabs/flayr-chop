@@ -1,0 +1,31 @@
+Flayr Chop patch for JUCE 8.0.16-security (ea77444750de45e036e0279bb0291144bf8e3688).
+
+MP3 decoder, intensity stereo (MP3Decoder::Layer3SideInfo::Info::doIStereo):
+for a long block whose last non-zero band is band 21, maxBandl is 22 and the loop
+that copies band 20 into band 21 started at sample 576, writing past the 2 x 576
+sample buffer into the rest of the decoder object (UBSan: index 576 out of bounds
+for type 'float[576]'). JUCE decodes MP3 itself on Windows and Linux, and on macOS
+when Core Audio refuses a file; a 21-byte file was enough (found by Flayr Chop's
+tests/fuzz/fuzz_sample_load). Same fix as mpg123's for CVE-2017-11126: nothing to
+do above band 21.
+
+Applied by CMakeLists.txt via FetchContent PATCH_COMMAND (cmake/ApplyPatch.cmake).
+
+Flayr-Patch-Marker: modules/juce_audio_formats/codecs/juce_MP3AudioFormat.cpp Flayr Chop: maxBandl
+
+diff --git a/modules/juce_audio_formats/codecs/juce_MP3AudioFormat.cpp b/modules/juce_audio_formats/codecs/juce_MP3AudioFormat.cpp
+index 79644b061c..27ff783de7 100644
+--- a/modules/juce_audio_formats/codecs/juce_MP3AudioFormat.cpp
++++ b/modules/juce_audio_formats/codecs/juce_MP3AudioFormat.cpp
+@@ -1023,6 +1023,11 @@ struct Layer3SideInfo
+             }
+             else
+             {
++                // Flayr Chop: maxBandl 22 means band 21 holds data: no intensity stereo to apply (and band 20's
++                // copy below would start past the end of xr). Same fix as mpg123's for CVE-2017-11126.
++                if (maxBandl > 21)
++                    return;
++
+                 int index = bi.longIndex[maxBandl];
+ 
+                 for (uint32 sfb = maxBandl; sfb < 21; ++sfb)

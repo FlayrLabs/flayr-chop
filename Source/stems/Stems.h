@@ -78,6 +78,7 @@ bool separate(const float* left, const float* right, int numSamples, double samp
 // macOS:   ~/Library/Application Support/Flayr Chop/models/ggml-model-htdemucs-4s-f16.bin
 // Windows: %APPDATA%\Flayr Chop\models\ggml-model-htdemucs-4s-f16.bin
 // Linux:   $XDG_DATA_HOME or ~/.local/share/Flayr Chop/models/ggml-model-htdemucs-4s-f16.bin
+// Always absolute; empty if no home folder can be found (never a relative path).
 std::string defaultModelPath();
 
 // True when the file exists and looks like a complete, supported model
@@ -90,6 +91,7 @@ bool modelAvailable(const std::string& path);
 const char* defaultModelFileName();
 const char* defaultModelUrl();
 const char* defaultModelSha256();
+long long defaultModelSize(); // bytes
 
 // Default worker count used when numThreads <= 0.
 int defaultThreadCount();
@@ -112,6 +114,18 @@ bool forceEngine(const std::string& name);
 // separations skip the load. Call this to free them, e.g. when the editor
 // closes or the plug-in is unloaded. Safe to call at any time.
 void releaseCachedModels();
+
+// SHA-256 of a buffer as lowercase hex (the model check uses it).
+std::string sha256Hex(const void* data, size_t size);
+
+// SHA-256 of a file (UTF-8 path) as lowercase hex, read in 1 MB blocks; false if it can't be read or
+// cancelled() returned true between blocks.
+bool sha256File(const std::string& utf8Path, std::string& hexOut, const std::function<bool()>& cancelled = {});
+
+// For tests: parses a model image without the checksum (separate() always
+// checks the SHA-256 first). False for malformed data, which must never read
+// or write out of bounds.
+bool parseModelImage(const void* data, size_t size, std::string* error = nullptr);
 
 // Resampling helper used internally, exposed for tests and the plug-in.
 // Resamples `in` from inRate to outRate producing exactly outLength samples

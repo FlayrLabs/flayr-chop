@@ -32,7 +32,8 @@
 #include <thread>
 
 #if !defined(_WIN32)
-#include <unistd.h> // sysconf
+#include <pwd.h>    // getpwuid
+#include <unistd.h> // sysconf, getuid
 #endif
 #if defined(__APPLE__)
 #include <sys/sysctl.h>
@@ -137,6 +138,94 @@ void enableFlushToZero()
 #endif
 }
 
+// ---------------------------------------------------------------- SHA-256
+
+// FIPS 180-4. Small and dependency-free; used to check model files before
+// they are parsed.
+class Sha256 {
+public:
+    void update(const unsigned char* data, size_t size)
+    {
+        total_ += size;
+        while (size > 0) {
+            const size_t n = std::min(size, sizeof(block_) - used_);
+            std::memcpy(block_ + used_, data, n);
+            used_ += n;
+            data += n;
+            size -= n;
+            if (used_ == sizeof(block_)) {
+                compress(block_);
+                used_ = 0;
+            }
+        }
+    }
+
+    std::string hex()
+    {
+        const uint64_t bits = total_ * 8;
+        const unsigned char pad = 0x80;
+        update(&pad, 1);
+        const unsigned char zero = 0;
+        while (used_ != 56)
+            update(&zero, 1);
+        unsigned char len[8];
+        for (int i = 0; i < 8; ++i)
+            len[i] = (unsigned char)(bits >> (56 - 8 * i));
+        update(len, 8);
+        static const char* digits = "0123456789abcdef";
+        std::string out;
+        for (uint32_t v : h_)
+            for (int i = 28; i >= 0; i -= 4)
+                out += digits[(v >> i) & 15];
+        return out;
+    }
+
+private:
+    static uint32_t rotr(uint32_t x, int n) { return (x >> n) | (x << (32 - n)); }
+
+    void compress(const unsigned char* p)
+    {
+        static const uint32_t k[64] = {
+            0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+            0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+            0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+            0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+            0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+            0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+            0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+            0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
+        uint32_t w[64];
+        for (int i = 0; i < 16; ++i)
+            w[i] = (uint32_t)p[4 * i] << 24 | (uint32_t)p[4 * i + 1] << 16 | (uint32_t)p[4 * i + 2] << 8 |
+                   (uint32_t)p[4 * i + 3];
+        for (int i = 16; i < 64; ++i) {
+            const uint32_t s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >> 3);
+            const uint32_t s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >> 10);
+            w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+        }
+        uint32_t a = h_[0], b = h_[1], c = h_[2], d = h_[3], e = h_[4], f = h_[5], g = h_[6], h = h_[7];
+        for (int i = 0; i < 64; ++i) {
+            const uint32_t t1 = h + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & g)) + k[i] + w[i];
+            const uint32_t t2 = (rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c));
+            h = g;
+            g = f;
+            f = e;
+            e = d + t1;
+            d = c;
+            c = b;
+            b = a;
+            a = t1 + t2;
+        }
+        h_[0] += a; h_[1] += b; h_[2] += c; h_[3] += d;
+        h_[4] += e; h_[5] += f; h_[6] += g; h_[7] += h;
+    }
+
+    uint32_t h_[8] = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
+    unsigned char block_[64] = {};
+    size_t used_ = 0;
+    uint64_t total_ = 0;
+};
+
 // ---------------------------------------------------------------- models
 
 struct LoadedModel {
@@ -196,6 +285,61 @@ bool checkModelFile(const std::string& path, std::string* why)
     return true;
 }
 
+std::string sha256Of(const unsigned char* data, size_t size)
+{
+    Sha256 h;
+    h.update(data, size);
+    return h.hex();
+}
+
+// Reads a whole model file and checks it against kKnownModels: its own entry
+// when the name is known, else any release of the same size.
+bool readVerifiedModel(const std::string& path, std::vector<unsigned char>& image, std::string& why)
+{
+    const auto p = toPath(path);
+#if defined(_WIN32)
+    FILE* f = _wfopen(p.c_str(), L"rb");
+#else
+    FILE* f = std::fopen(p.c_str(), "rb");
+#endif
+    if (!f) {
+        why = "cannot open model file: " + path;
+        return false;
+    }
+    long long biggest = 0;
+    for (const auto& k : kKnownModels)
+        biggest = std::max(biggest, k.size);
+    image.clear();
+    unsigned char buf[1 << 16];
+    for (;;) {
+        const size_t n = std::fread(buf, 1, sizeof(buf), f);
+        if (n == 0)
+            break;
+        if ((long long)(image.size() + n) > biggest) { // never read more than a real model
+            std::fclose(f);
+            why = "model file is not a supported Demucs model (too big): " + path;
+            return false;
+        }
+        image.insert(image.end(), buf, buf + n);
+    }
+    const bool readError = std::ferror(f) != 0;
+    std::fclose(f);
+    if (readError) {
+        why = "cannot read model file: " + path;
+        return false;
+    }
+    const std::string hash = sha256Of(image.data(), image.size());
+    const KnownModel* named = findKnown(path);
+    for (const auto& k : kKnownModels) {
+        if (named && &k != named)
+            continue;
+        if ((long long)image.size() == k.size && hash == k.sha256)
+            return true;
+    }
+    why = "model file failed its checksum (damaged or modified; delete it to download it again): " + path;
+    return false;
+}
+
 std::shared_ptr<const LoadedModel> getModel(const std::string& path, std::string* why)
 {
     std::lock_guard<std::mutex> lock(gCacheMutex);
@@ -204,13 +348,20 @@ std::shared_ptr<const LoadedModel> getModel(const std::string& path, std::string
         return it->second;
     if (!checkModelFile(path, why))
         return nullptr;
+    // Read once, check the SHA-256 of a known release, then parse those same
+    // bytes: a file swapped or damaged after download is never parsed, and
+    // there is no window between the check and the parse.
+    std::vector<unsigned char> image;
+    std::string verifyError;
+    if (!readVerifiedModel(path, image, verifyError)) {
+        if (why) *why = verifyError;
+        return nullptr;
+    }
     auto lm = std::make_shared<LoadedModel>();
     lm->model = std::make_unique<demucscpp::demucs_model>();
-    // (the loader opens UTF-8 paths with _wfopen on Windows, so non-ASCII
-    // user folders work)
     bool ok = false;
     try {
-        ok = demucscpp::load_demucs_model(path, lm->model.get());
+        ok = demucscpp::load_demucs_model_from_memory(image.data(), image.size(), lm->model.get());
     } catch (const std::exception& e) {
         if (why) *why = std::string("model load failed: ") + e.what();
         return nullptr;
@@ -539,6 +690,36 @@ private:
     std::string workerError_;
 };
 
+// Physical RAM in bytes, or 0 if unknown.
+unsigned long long physicalRam()
+{
+    unsigned long long ram = 0;
+#if defined(__APPLE__)
+    size_t len = sizeof(ram);
+    if (sysctlbyname("hw.memsize", &ram, &len, nullptr, 0) != 0)
+        ram = 0;
+#elif defined(_WIN32)
+    MEMORYSTATUSEX status;
+    status.dwLength = sizeof(status);
+    if (GlobalMemoryStatusEx(&status))
+        ram = (unsigned long long)status.ullTotalPhys;
+#else
+    const long pages = sysconf(_SC_PHYS_PAGES);
+    const long pageSize = sysconf(_SC_PAGE_SIZE);
+    if (pages > 0 && pageSize > 0)
+        ram = (unsigned long long)pages * (unsigned long long)pageSize;
+#endif
+    return ram;
+}
+
+// Most memory one separation's audio buffers may take: half of RAM, but at least 5 GB (20 minutes
+// at 48 kHz needs about 4.4) and at most 8 GB (20 minutes at 192 kHz would need over 9).
+unsigned long long separationMemoryBudget()
+{
+    const unsigned long long gb = 1ULL << 30;
+    return std::clamp(physicalRam() / 2, 5 * gb, 8 * gb);
+}
+
 // Runs fn(i) for i in [0, n) on up to `threads` threads.
 template <typename Fn>
 void parallelFor(int n, int threads, Fn&& fn)
@@ -550,19 +731,81 @@ void parallelFor(int n, int threads, Fn&& fn)
         return;
     }
     std::atomic<int> next{0};
+    // An exception on a pool thread would terminate the host: keep the first one and rethrow it here.
+    std::mutex errorMutex;
+    std::exception_ptr firstError;
     std::vector<std::thread> pool;
     for (int t = 0; t < threads; ++t)
         pool.emplace_back([&] {
-            for (int i = next.fetch_add(1); i < n; i = next.fetch_add(1))
-                fn(i);
+            try {
+                for (int i = next.fetch_add(1); i < n; i = next.fetch_add(1))
+                    fn(i);
+            } catch (...) {
+                next.store(n);
+                std::lock_guard<std::mutex> lock(errorMutex);
+                if (!firstError)
+                    firstError = std::current_exception();
+            }
         });
     for (auto& t : pool)
         t.join();
+    if (firstError)
+        std::rethrow_exception(firstError);
 }
 
 } // namespace
 
 // ---------------------------------------------------------------- public API
+
+std::string sha256Hex(const void* data, size_t size)
+{
+    return sha256Of(static_cast<const unsigned char*>(data), size);
+}
+
+bool sha256File(const std::string& utf8Path, std::string& hexOut, const std::function<bool()>& cancelled)
+{
+    hexOut.clear();
+    std::FILE* f = nullptr;
+#if defined(_WIN32)
+    f = _wfopen(std::filesystem::u8path(utf8Path).c_str(), L"rb");
+#else
+    f = std::fopen(utf8Path.c_str(), "rb");
+#endif
+    if (f == nullptr)
+        return false;
+    Sha256 h;
+    std::vector<unsigned char> buf(1 << 20);
+    bool ok = true;
+    for (;;) {
+        if (cancelled && cancelled()) {
+            ok = false;
+            break;
+        }
+        const size_t n = std::fread(buf.data(), 1, buf.size(), f);
+        h.update(buf.data(), n);
+        if (n < buf.size()) {
+            ok = std::ferror(f) == 0;
+            break;
+        }
+    }
+    std::fclose(f);
+    if (ok)
+        hexOut = h.hex();
+    return ok;
+}
+
+bool parseModelImage(const void* data, size_t size, std::string* error)
+{
+    try {
+        auto model = std::make_unique<demucscpp::demucs_model>();
+        if (demucscpp::load_demucs_model_from_memory(static_cast<const unsigned char*>(data), size, model.get()))
+            return true;
+        setError(error, "malformed model");
+    } catch (const std::exception& e) {
+        setError(error, std::string("malformed model: ") + e.what());
+    }
+    return false;
+}
 
 const char* defaultModelFileName() { return kKnownModels[0].file; }
 
@@ -570,25 +813,38 @@ const char* defaultModelUrl() { return kDefaultModelUrl; }
 
 const char* defaultModelSha256() { return kKnownModels[0].sha256; }
 
+long long defaultModelSize() { return kKnownModels[0].size; }
+
 std::string defaultModelPath()
 {
+    // Only absolute locations: with HOME (or APPDATA) unset the old code fell back to a path
+    // relative to whatever the host's working directory happened to be.
     std::filesystem::path base;
 #if defined(_WIN32)
-    if (const char* appdata = std::getenv("APPDATA"))
+    if (const char* appdata = std::getenv("APPDATA"); appdata && *appdata)
         base = std::filesystem::u8path(appdata);
-    else if (const char* profile = std::getenv("USERPROFILE"))
+    else if (const char* profile = std::getenv("USERPROFILE"); profile && *profile)
         base = std::filesystem::u8path(profile) / "AppData" / "Roaming";
+    if (base.empty() || !base.is_absolute())
+        return {};
     base = base / "Flayr Chop" / "models";
-#elif defined(__APPLE__)
-    if (const char* home = std::getenv("HOME"))
-        base = home;
-    base = base / "Library" / "Application Support" / "Flayr Chop" / "models";
 #else
-    if (const char* xdg = std::getenv("XDG_DATA_HOME"); xdg && *xdg)
-        base = xdg;
-    else if (const char* home = std::getenv("HOME"))
-        base = std::filesystem::path(home) / ".local" / "share";
-    base = base / "Flayr Chop" / "models";
+    std::filesystem::path home;
+    if (const char* h = std::getenv("HOME"); h && *h)
+        home = h;
+    if (home.empty() || !home.is_absolute())
+        if (const passwd* pw = getpwuid(getuid()); pw && pw->pw_dir && *pw->pw_dir)
+            home = pw->pw_dir;
+#if defined(__APPLE__)
+    base = home / "Library" / "Application Support" / "Flayr Chop" / "models";
+#else
+    if (const char* xdg = std::getenv("XDG_DATA_HOME"); xdg && *xdg && std::filesystem::path(xdg).is_absolute())
+        base = std::filesystem::path(xdg) / "Flayr Chop" / "models";
+    else
+        base = home / ".local" / "share" / "Flayr Chop" / "models";
+#endif
+    if (!base.is_absolute())
+        return {};
 #endif
     return fromPath(base / defaultModelFileName());
 }
@@ -609,29 +865,16 @@ int defaultThreadCount()
 {
     // Each worker holds about 0.3-0.5 GB at peak; keep all workers within a
     // quarter of physical RAM (macOS, Windows and Linux alike).
-    unsigned long long ram = 0;
+    const unsigned long long ram = physicalRam();
     int cores = 0;
 #if defined(__APPLE__)
-    size_t len = sizeof(ram);
-    if (sysctlbyname("hw.memsize", &ram, &len, nullptr, 0) != 0)
-        ram = 0;
     // On Apple silicon the GEMMs run on the P cluster's shared matrix unit,
     // so past a few workers extra threads mostly wait for it while memory
     // keeps growing (measured on an M3 Pro).
     int perf = 0;
-    len = sizeof(perf);
+    size_t len = sizeof(perf);
     if (sysctlbyname("hw.perflevel0.physicalcpu", &perf, &len, nullptr, 0) == 0 && perf > 0)
         cores = std::min(perf, kAppleMaxWorkers);
-#elif defined(_WIN32)
-    MEMORYSTATUSEX status;
-    status.dwLength = sizeof(status);
-    if (GlobalMemoryStatusEx(&status))
-        ram = (unsigned long long)status.ullTotalPhys;
-#else
-    const long pages = sysconf(_SC_PHYS_PAGES);
-    const long pageSize = sysconf(_SC_PAGE_SIZE);
-    if (pages > 0 && pageSize > 0)
-        ram = (unsigned long long)pages * (unsigned long long)pageSize;
 #endif
     if (cores <= 0) {
         const unsigned hc = std::thread::hardware_concurrency();
@@ -744,6 +987,23 @@ bool separateImpl(const float* left, const float* right, int numSamples, double 
     // ---- resample to 44.1 kHz
     const bool needResample = std::abs(sampleRate - kModelRate) > 1e-6;
     const int modelLen = needResample ? (int)std::llround((double)numSamples * kModelRate / sampleRate) : numSamples;
+
+    // ---- memory: the big buffers below scale with the input. Refuse up front rather than let a
+    // long high-rate track push the host into swap (or out of memory) halfway through.
+    {
+        const auto maxShiftSamples = (unsigned long long)(demucscpp::MAX_SHIFT_SECS * kModelRate);
+        const unsigned long long floats =
+            2ULL * (unsigned long long)modelLen                                       // resampled input
+            + 2ULL * ((unsigned long long)modelLen + maxShiftSamples)                 // normalized mix
+            + 2ULL * (unsigned long long)nbSources * (unsigned long long)numSamples  // output stems
+            + (needResample ? 2ULL * (unsigned long long)nbSources * (unsigned long long)modelLen : 0ULL);
+        const unsigned long long bytes = floats * sizeof(float);
+        if (bytes > separationMemoryBudget()) {
+            setError(error, "this track is too long for stem separation at its sample rate (it would need about " +
+                                std::to_string((bytes + (1ULL << 29)) >> 30) + " GB of memory)");
+            return false;
+        }
+    }
     if (modelLen <= 0) {
         out.audio.assign((size_t)nbSources, {std::vector<float>((size_t)numSamples, 0.0f),
                                              std::vector<float>((size_t)numSamples, 0.0f)});
@@ -891,13 +1151,36 @@ bool separateImpl(const float* left, const float* right, int numSamples, double 
     return true;
 }
 
+// separate() is called on a plug-in's worker thread, where an escaping exception would terminate the
+// host: every failure (out of memory included) becomes a false return with an error message.
+bool separateGuarded(const float* left, const float* right, int numSamples, double sampleRate,
+                     const std::string& modelPath, Separated& out, const std::function<bool(float)>& progress,
+                     int numThreads, std::string* error, const std::function<void(int, int)>& onSegmentReady)
+{
+    try {
+        return separateImpl(left, right, numSamples, sampleRate, modelPath, out, progress, numThreads, error,
+                            onSegmentReady);
+    } catch (const std::bad_alloc&) {
+        setError(error, "out of memory during stem separation");
+    } catch (const std::exception& e) {
+        setError(error, std::string("stem separation failed: ") + e.what());
+    } catch (...) {
+        setError(error, "stem separation failed");
+    }
+    try {
+        out = Separated{};
+    } catch (...) {
+    }
+    return false;
+}
+
 } // namespace
 
 bool separate(const float* left, const float* right, int numSamples, double sampleRate,
               const std::string& modelPath, Separated& out,
               const std::function<bool(float)>& progress, int numThreads, std::string* error)
 {
-    return separateImpl(left, right, numSamples, sampleRate, modelPath, out, progress, numThreads, error, nullptr);
+    return separateGuarded(left, right, numSamples, sampleRate, modelPath, out, progress, numThreads, error, nullptr);
 }
 
 bool separate(const float* left, const float* right, int numSamples, double sampleRate,
@@ -905,8 +1188,8 @@ bool separate(const float* left, const float* right, int numSamples, double samp
               const std::function<bool(float)>& progress, int numThreads, std::string* error,
               const std::function<void(int startSample, int endSample)>& onSegmentReady)
 {
-    return separateImpl(left, right, numSamples, sampleRate, modelPath, out, progress, numThreads, error,
-                        onSegmentReady);
+    return separateGuarded(left, right, numSamples, sampleRate, modelPath, out, progress, numThreads, error,
+                           onSegmentReady);
 }
 
 } // namespace chop::stems

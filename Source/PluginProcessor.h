@@ -39,6 +39,15 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
+    // A saved state as XML, or nullptr if it breaks any limit untrusted project data must keep to
+    // (size, nesting, no DTDs). Pure; safe on any thread.
+    static std::unique_ptr<juce::XmlElement> parseState (const void* data, int sizeInBytes);
+    static constexpr int kMaxStateBytes = 256 * 1024; // a full project with long paths is ~30 KB
+    static constexpr int kMaxStateElements = 512;    // a full project is ~100
+    static constexpr int kMaxStateDepth = 8;         // a full project is 3
+    static constexpr int kMaxStateEntities = 4096;   // '&': a full project has one per '&', '<', '"' in its paths
+    static constexpr int kMaxStateAttributes = 4096; // '=': a full project has ~1,100
+
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     static juce::String stemLevelId (int s) { return "stemLevel" + juce::String (s); }
     static juce::String stemMuteId (int s) { return "stemMute" + juce::String (s); }
@@ -83,7 +92,8 @@ public:
 
     bool hasSample() const { return sample != nullptr; }
     const chop::LoadedSample* getSample() const { return sample.get(); }
-    juce::String getFileName() const { return sample ? sample->file.getFileNameWithoutExtension() : missingFile.getFileNameWithoutExtension(); }
+    juce::String getFileName() const { return sample ? sampleOriginal.getFileNameWithoutExtension() : missingFile.getFileNameWithoutExtension(); }
+    juce::File getLibraryCopy() const { return sampleLibrary; }
     bool isFileMissing() const { return sample == nullptr && missingFile != juce::File(); }
     juce::File getMissingFile() const { return missingFile; }
     Busy getBusy() const { return busy; }
@@ -175,6 +185,10 @@ private:
     int sampleKey = 0;
     bool sampleMinor = false;
     juce::File missingFile;
+    juce::File sampleOriginal, sampleLibrary; // what the loaded sample saves as "path" and "libraryPath"
+    uint64_t loadGeneration = 0;              // only the newest load's result is applied
+    void restoreSample (const juce::String& path, const juce::String& libraryPath);
+    void loadCandidates (const juce::File& original, std::vector<juce::File> candidates, const juce::File& knownLibraryCopy);
     Busy busy = Busy::None;
     std::atomic<float> progress { 0.0f };
     juce::String status;
@@ -183,11 +197,27 @@ private:
     double sourceRate = 0.0;
 
     // Background work: one job at a time; results come back through the inbox on the timer.
-    std::thread worker;
+    class JobThread;
+    std::unique_ptr<JobThread> worker;
     std::atomic<bool> cancelJob { false };
     std::mutex inboxMutex;
     std::vector<std::function<void()>> inbox;
     std::unique_ptr<juce::ValueTree> pendingPadState; // pads restored with a project, applied after load
+
+    // Project state across threads (see getStateInformation).
+    void restoreState (const void* data, int sizeInBytes);
+    void applyState (const juce::XmlElement&);
+    static juce::ValueTree cleanSampleState (const juce::ValueTree&);
+    juce::ValueTree cleanParameterState (const juce::ValueTree&) const;
+    juce::ValueTree buildSampleState() const;
+    juce::ValueTree buildUiState() const;
+    void refreshStateSnapshot();
+    std::mutex stateMutex;
+    juce::ValueTree snapshotSample { "Sample" }, snapshotUi { "UI" };
+    std::unique_ptr<juce::MemoryBlock> pendingState; // restored off the message thread, not applied yet
+    uint64_t stateGeneration = 0;
+    int snapshotTicks = 0;
+    std::shared_ptr<int> lifetime = std::make_shared<int> (0);
 
     // UI note queue into the audio thread.
     juce::AbstractFifo uiFifo { 256 };

@@ -1,0 +1,47 @@
+Flayr Chop patch for JUCE 8.0.16-security (ea77444750de45e036e0279bb0291144bf8e3688).
+
+CAF metadata (CoreAudioFormatMetatdata, macOS): a chunk with a negative size
+moved the stream backwards and the chunk loop never ended (a 20-byte file hung the
+loader), and the 'info' and 'uuid' chunk parsers looped up to a 32-bit entry count
+from the file after the stream ran out. Found by Flayr Chop's fuzzing.
+
+Applied by CMakeLists.txt via FetchContent PATCH_COMMAND (cmake/ApplyPatch.cmake).
+
+Flayr-Patch-Marker: modules/juce_audio_formats/codecs/juce_CoreAudioFormat.cpp Flayr Chop: negative chunk size
+Flayr-Patch-Marker: modules/juce_audio_formats/codecs/juce_CoreAudioFormat.cpp Flayr Chop: info entries
+Flayr-Patch-Marker: modules/juce_audio_formats/codecs/juce_CoreAudioFormat.cpp Flayr Chop: uuid entries
+
+diff --git a/modules/juce_audio_formats/codecs/juce_CoreAudioFormat.cpp b/modules/juce_audio_formats/codecs/juce_CoreAudioFormat.cpp
+index 0b3d755117..ed58175e6e 100644
+--- a/modules/juce_audio_formats/codecs/juce_CoreAudioFormat.cpp
++++ b/modules/juce_audio_formats/codecs/juce_CoreAudioFormat.cpp
+@@ -185,7 +185,7 @@ struct CoreAudioFormatMetatdata
+         {
+             auto numEntries = (uint32) input.readIntBigEndian();
+ 
+-            for (uint32 i = 0; i < numEntries && input.getPosition() < originalPosition + size; ++i)
++            for (uint32 i = 0; i < numEntries && input.getPosition() < originalPosition + size && ! input.isExhausted(); ++i) // Flayr Chop: uuid entries end with the stream
+             {
+                 String keyName = input.readString();
+                 infoStrings.set (keyName, input.readString());
+@@ -332,7 +332,7 @@ struct CoreAudioFormatMetatdata
+         StringPairArray infoStrings;
+         auto numEntries = (uint32) input.readIntBigEndian();
+ 
+-        for (uint32 i = 0; i < numEntries; ++i)
++        for (uint32 i = 0; i < numEntries && ! input.isExhausted(); ++i) // Flayr Chop: info entries end with the stream
+             infoStrings.set (input.readString(), input.readString());
+ 
+         return infoStrings;
+@@ -352,6 +352,11 @@ struct CoreAudioFormatMetatdata
+             {
+                 const ChunkHeader chunkHeader (input);
+ 
++                // Flayr Chop: negative chunk sizes (other than the data chunk's 'unknown', -1) would move
++                // the stream backwards and loop forever.
++                if (chunkHeader.chunkSize < -1 || (chunkHeader.chunkSize == -1 && chunkHeader.chunkType != chunkName ("data")))
++                    break;
++
+                 if (chunkHeader.chunkType == chunkName ("desc"))
+                 {
+                     AudioDescriptionChunk audioDescriptionChunk (input);

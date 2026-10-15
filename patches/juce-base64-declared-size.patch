@@ -1,0 +1,54 @@
+Flayr Tune patch for JUCE 8.0.16-security (ea77444750de45e036e0279bb0291144bf8e3688).
+
+MemoryBlock::fromBase64Encoding reads "<byte count>.<chars>" and allocated the
+count as given before reading a character: "-1.AAAA" asked for SIZE_MAX
+(std::bad_alloc escaping into the host), "2000000000.A" for 2 GB, and a long
+number overflowed getIntValue. Every caller is affected, including
+ValueTree::fromXml (any attribute named "base64:<x>" is decoded this way) and
+the LV2 wrapper's session state, both of which run before a plug-in can check
+anything. Accept only plain digits, at most INT_MAX, and at most what the
+characters after the dot can encode.
+
+Applied by CMakeLists.txt via FetchContent PATCH_COMMAND.
+
+Flayr-Patch-Marker: modules/juce_core/memory/juce_MemoryBlock.cpp FLAYR_PATCH juce-base64-declared-size
+
+diff --git a/modules/juce_core/memory/juce_MemoryBlock.cpp b/modules/juce_core/memory/juce_MemoryBlock.cpp
+index 5fc2522317..7cf8c843d3 100644
+--- a/modules/juce_core/memory/juce_MemoryBlock.cpp
++++ b/modules/juce_core/memory/juce_MemoryBlock.cpp
+@@ -398,11 +398,32 @@ bool MemoryBlock::fromBase64Encoding (StringRef s)
+     if (dot.isEmpty())
+         return false;
+ 
+-    auto numBytesNeeded = String (s.text, dot).getIntValue();
++    // FLAYR_PATCH juce-base64-declared-size: the byte count comes from the encoded text and used to be allocated as
++    // given ("-1." asked for SIZE_MAX and threw std::bad_alloc, "2000000000." for 2 GB,
++    // and getIntValue overflowed on longer numbers). Accept only plain digits, and only a
++    // count the characters after the dot can actually fill.
++    size_t numBytesNeeded = 0;
+ 
+-    setSize ((size_t) numBytesNeeded, true);
++    for (auto p = s.text; p != dot; ++p)
++    {
++        const auto c = *p;
++
++        if (c < '0' || c > '9')
++            return false;
++
++        numBytesNeeded = numBytesNeeded * 10 + (size_t) (c - '0');
++
++        if (numBytesNeeded > (size_t) std::numeric_limits<int>::max())
++            return false;
++    }
+ 
+     auto srcChars = dot + 1;
++
++    if (numBytesNeeded > srcChars.length() * 6 / 8 + 1)
++        return false;
++
++    setSize (numBytesNeeded, true);
++
+     size_t pos = 0;
+ 
+     while (auto c = (int) srcChars.getAndAdvance())

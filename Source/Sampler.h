@@ -30,7 +30,12 @@ struct Stereo
 {
     std::vector<float> l, r;
     int size() const { return (int) l.size(); }
-    void resize (int n) { l.assign ((size_t) n, 0.0f); r.assign ((size_t) n, 0.0f); }
+    void resize (int n)
+    {
+        const auto count = (size_t) std::max (0, n); // a negative count must not wrap to a huge size_t
+        l.assign (count, 0.0f);
+        r.assign (count, 0.0f);
+    }
 };
 using StereoPtr = std::shared_ptr<const Stereo>;
 
@@ -266,6 +271,14 @@ public:
             f.reset();
         filterSmoothed = 0.0f;
         clock = 0;
+    }
+
+    // Audio thread: start the global filter over (after non-finite output).
+    void resetFilter()
+    {
+        for (auto& f : filt)
+            f.reset();
+        filterSmoothed = 0.0f;
     }
 
     void noteOn (int note, float velocity, const Context& c)
@@ -702,6 +715,10 @@ private:
 
     void applyFilter (float* l, float* r, int n, float target)
     {
+        if (! std::isfinite (target))
+            target = 0.0f;
+        if (! std::isfinite (filterSmoothed))
+            resetFilter(); // a NaN here would stick forever
         if (std::abs (target) < 0.02f && std::abs (filterSmoothed) < 0.02f)
         {
             filterSmoothed = 0.0f;

@@ -756,18 +756,34 @@ void testLongFileSpeed() {
 }
 
 int main() {
+    // Unbuffered, so a CI log that ends in a crash still shows the last section reached.
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+    std::setvbuf(stderr, nullptr, _IONBF, 0);
+    std::printf("-- testFFT\n");
     testFFT();
+    std::printf("-- testClickTracks\n");
     testClickTracks();
+    std::printf("-- testSwing\n");
     testSwing();
+    std::printf("-- testDrumLoops\n");
     testDrumLoops();
+    std::printf("-- testKeys\n");
     testKeys();
+    std::printf("-- testTempoAmbiguity\n");
     testTempoAmbiguity();
+    std::printf("-- testRelativeKeys\n");
     testRelativeKeys();
+    std::printf("-- testStems\n");
     testStems();
+    std::printf("-- testSampleRateInvariance\n");
     testSampleRateInvariance();
+    std::printf("-- testNames\n");
     testNames();
+    std::printf("-- testEdgeCases\n");
     testEdgeCases();
+    std::printf("-- testOverview\n");
     testOverview();
+    std::printf("-- testLongFileSpeed\n");
     testLongFileSpeed();
     std::printf("\n%d checks, %d failed\n", g_checks, g_fail);
     return g_fail == 0 ? 0 : 1;

@@ -3,6 +3,7 @@
 #include <cstdarg>
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <streambuf>
 #include <filesystem>
 #include <iostream>
@@ -40,30 +41,114 @@ std::ostream &null_log()
 
 static void my_fprintf(const std::FILE *, const char *, ...) {}
 
+// Flayr Chop: the model is parsed from memory with fread-like semantics, and
+// every read is checked by the caller.
+struct model_reader
+{
+    const unsigned char *data;
+    size_t size;
+    size_t pos;
+};
+
+static size_t mr_read(void *dst, size_t elem, size_t count, model_reader *r)
+{
+    if (elem == 0 || count == 0)
+        return 0;
+    const size_t avail = (r->size - r->pos) / elem;
+    const size_t n = count < avail ? count : avail;
+    std::memcpy(dst, r->data + r->pos, n * elem);
+    r->pos += n * elem;
+    return n;
+}
+
+static void mr_close(model_reader *) {}
+
+static bool read_model_file(const std::string &path, std::vector<unsigned char> &out)
+{
+    FILE *f = open_model_file(path);
+    if (!f)
+        return false;
+    bool ok = std::fseek(f, 0, SEEK_END) == 0;
+    const long size = ok ? std::ftell(f) : -1;
+    ok = ok && size > 0 && size <= (1L << 30) && std::fseek(f, 0, SEEK_SET) == 0;
+    if (ok)
+    {
+        out.resize((size_t)size);
+        ok = std::fread(out.data(), 1, out.size(), f) == out.size();
+    }
+    std::fclose(f);
+    return ok;
+}
+
+// One tensor header: n_dims, name length, dims, name. Returns 1 when a header
+// was read, 0 at a clean end of the model, -1 for malformed data.
+static int read_tensor_header(model_reader *f, int32_t ne[4],
+                              int32_t &nelements, std::string &name)
+{
+    constexpr int64_t kMaxElements = 1 << 26; // the largest real tensor is ~2.4M
+    if (f->pos == f->size)
+        return 0;
+    int32_t n_dims = 0, length = 0;
+    if (mr_read(&n_dims, sizeof(int32_t), 1, f) != 1 ||
+        mr_read(&length, sizeof(int32_t), 1, f) != 1)
+        return -1;
+    if (n_dims < 1 || n_dims > 4 || length < 1 || length > 256)
+        return -1;
+    int64_t n = 1;
+    for (int i = 0; i < 4; ++i)
+        ne[i] = 1;
+    for (int i = 0; i < n_dims; ++i)
+    {
+        if (mr_read(&ne[i], sizeof(int32_t), 1, f) != 1 || ne[i] < 1)
+            return -1;
+        n *= ne[i];
+        if (n > kMaxElements)
+            return -1;
+    }
+    char buf[256];
+    if (mr_read(buf, 1, (size_t)length, f) != (size_t)length)
+        return -1;
+    name.assign(buf, (size_t)length);
+    nelements = (int32_t)n;
+    return 1;
+}
+
 // forward declaration
-static size_t load_single_tensor1d(FILE *f, const std::string &name,
+static size_t load_single_tensor1d(model_reader *f, const std::string &name,
                                    Eigen::Tensor1dXf &matrix, int *ne,
                                    int32_t nelements);
 
-static size_t load_single_vector(FILE *f, const std::string &name,
+static size_t load_single_vector(model_reader *f, const std::string &name,
                                  Eigen::VectorXf &matrix, int *ne,
                                  int32_t nelements);
 
-static size_t load_single_matrix(FILE *f, const std::string &name,
+static size_t load_single_matrix(model_reader *f, const std::string &name,
                                  Eigen::MatrixXf &matrix, int *ne,
                                  int32_t nelements);
 
-static size_t load_single_tensor3d(FILE *f, const std::string &name,
+static size_t load_single_tensor3d(model_reader *f, const std::string &name,
                                    Eigen::Tensor3dXf &tensor, int *ne,
                                    int32_t nelements);
 
-static size_t load_single_tensor4d(FILE *f, const std::string &name,
+static size_t load_single_tensor4d(model_reader *f, const std::string &name,
                                    Eigen::Tensor4dXf &tensor, int *ne,
                                    int32_t nelements);
 
 // from scripts/convert-pth-to-ggml.py
 bool demucscpp::load_demucs_model(const std::string &model_file,
                                   struct demucs_model *model)
+{
+    std::vector<unsigned char> image;
+    if (!read_model_file(model_file, image))
+        return false;
+    return load_demucs_model_from_memory(image.data(), image.size(), model);
+}
+
+// Flayr Chop: parses a model image already in memory (the plug-in reads the
+// file once, checks its SHA-256, then parses the same bytes).
+bool demucscpp::load_demucs_model_from_memory(const unsigned char *data,
+                                              size_t size,
+                                              struct demucs_model *model)
 {
     my_fprintf(stderr, "%s: loading model\n", __func__);
 
@@ -75,13 +160,8 @@ bool demucscpp::load_demucs_model(const std::string &model_file,
 
     null_log() << "Loading model_file... " << std::endl;
 
-    FILE *f = open_model_file(model_file);
-    if (!f)
-    {
-        my_fprintf(stderr, "%s: failed to open %s\n", __func__,
-                   model_file.c_str());
-        return false;
-    }
+    model_reader reader{data, size, 0};
+    model_reader *f = &reader;
 
     // verify magic
     uint32_t magic;
@@ -89,7 +169,8 @@ bool demucscpp::load_demucs_model(const std::string &model_file,
     null_log() << "Checking the magic of model_file" << std::endl;
 
     // read the size of uint32_t bytes from f into magic
-    fread(&magic, sizeof(uint32_t), 1, f);
+    if (mr_read(&magic, sizeof(uint32_t), 1, f) != 1)
+        return false;
 
     if (magic == 0x646d6336) // dmc6
     {
@@ -112,7 +193,7 @@ bool demucscpp::load_demucs_model(const std::string &model_file,
     else
     {
         my_fprintf(stderr, "%s: invalid model data (bad magic)\n", __func__);
-        fclose(f);
+        mr_close(f);
         return false;
     }
 
@@ -134,31 +215,19 @@ bool demucscpp::load_demucs_model(const std::string &model_file,
 
     for (;;)
     {
-        int32_t n_dims;
-        int32_t length;
-
-        fread(&n_dims, sizeof(int32_t), 1, f);
-        fread(&length, sizeof(int32_t), 1, f);
-
+        // Flayr Chop: the header is untrusted input; every field is checked
+        // (the original trusted n_dims, which overflowed ne[4] on the stack).
         int32_t nelements = 1;
-
-        // we are loading up to 4d tensors, so allocate 4 dims
         int32_t ne[4] = {1, 1, 1, 1};
-        for (int i = 0; i < n_dims; ++i)
-        {
-            fread(&ne[i], sizeof(int32_t), 1, f);
-            nelements *= ne[i];
-        }
-
         std::string name;
-        std::vector<char> tmp(length);               // create a buffer
-        fread(&tmp[0], sizeof(char), tmp.size(), f); // read to buffer
-        name.assign(&tmp[0], tmp.size());
-
-        // check if we reached eof of the open file f
-        if (feof(f))
+        const int header = read_tensor_header(f, ne, nelements, name);
+        if (header == 0)
+            break; // clean end of the model
+        if (header < 0)
         {
-            break;
+            my_fprintf(stderr, "%s: malformed tensor header\n", __func__);
+            mr_close(f);
+            return false;
         }
 
         // null_log() << "Loading tensor " << name << " with shape [" << ne[0]
@@ -1081,14 +1150,16 @@ bool demucscpp::load_demucs_model(const std::string &model_file,
         {
             my_fprintf(stderr, "%s: failed to load %s\n", __func__,
                        name.c_str());
-            fclose(f); // Flayr Chop: do not leak the handle
+            mr_close(f);
             return false;
         }
         total_size += loaded_size;
         n_loaded++;
     }
 
-    fclose(f);
+    mr_close(f);
+    if (n_loaded == 0)
+        return false;
 
     // compute finish time in microseconds using std::chrono
 
@@ -1105,11 +1176,13 @@ bool demucscpp::load_demucs_model(const std::string &model_file,
     return true;
 }
 
-static size_t load_single_matrix(FILE *f, const std::string &name,
+static size_t load_single_matrix(model_reader *f, const std::string &name,
                                  Eigen::MatrixXf &matrix, int *ne,
                                  int32_t nelements)
 {
-    if (matrix.size() != nelements)
+    // Flayr Chop: the shape must match too, not just the element count
+    // (the copy loops below index by ne[]).
+    if (matrix.size() != nelements || ne[0] != matrix.rows() || ne[1] != matrix.cols())
     {
         my_fprintf(stderr, "%s: tensor '%s' has wrong size in model file\n",
                    __func__, name.data());
@@ -1131,7 +1204,8 @@ static size_t load_single_matrix(FILE *f, const std::string &name,
             Eigen::Matrix<Eigen::half, Eigen::Dynamic, Eigen::Dynamic,
                           Eigen::RowMajor>::Zero(matrix.rows(), matrix.cols());
 
-    fread(matrix_half.data(), bpe_half, nelements, f);
+    if (mr_read(matrix_half.data(), bpe_half, (size_t)nelements, f) != (size_t)nelements)
+        return 0;
 
     // my_fprintf(stdout, "%16s: [%5d, %5d], type = float, %6.2f MB\n",
     // name.data(), ne[0],
@@ -1149,11 +1223,14 @@ static size_t load_single_matrix(FILE *f, const std::string &name,
     return nbytes_tensor;
 }
 
-static size_t load_single_tensor3d(FILE *f, const std::string &name,
+static size_t load_single_tensor3d(model_reader *f, const std::string &name,
                                    Eigen::Tensor3dXf &tensor, int *ne,
                                    int32_t nelements)
 {
-    if (tensor.size() != nelements)
+    // Flayr Chop: the shape must match too, not just the element count
+    // (the copy loops below index by ne[]).
+    if (tensor.size() != nelements || ne[0] != tensor.dimension(0) ||
+        ne[1] != tensor.dimension(1) || ne[2] != tensor.dimension(2))
     {
         my_fprintf(stderr, "%s: tensor '%s' has wrong size in model file\n",
                    __func__, name.data());
@@ -1173,7 +1250,8 @@ static size_t load_single_tensor3d(FILE *f, const std::string &name,
     // of the same shape as the float matrix
     Eigen::Tensor<Eigen::half, 3, Eigen::RowMajor> tensor_half(ne[0], ne[1],
                                                                ne[2]);
-    fread(tensor_half.data(), bpe_half, nelements, f);
+    if (mr_read(tensor_half.data(), bpe_half, (size_t)nelements, f) != (size_t)nelements)
+        return 0;
 
     // my_fprintf(stdout, "%16s: [%5d, %5d, %5d], type = float, %6.2f MB\n",
     // name.data(),
@@ -1194,11 +1272,15 @@ static size_t load_single_tensor3d(FILE *f, const std::string &name,
     return nbytes_tensor;
 }
 
-static size_t load_single_tensor4d(FILE *f, const std::string &name,
+static size_t load_single_tensor4d(model_reader *f, const std::string &name,
                                    Eigen::Tensor4dXf &tensor, int *ne,
                                    int32_t nelements)
 {
-    if (tensor.size() != nelements)
+    // Flayr Chop: the shape must match too, not just the element count
+    // (the copy loops below index by ne[]).
+    if (tensor.size() != nelements || ne[0] != tensor.dimension(0) ||
+        ne[1] != tensor.dimension(1) || ne[2] != tensor.dimension(2) ||
+        ne[3] != tensor.dimension(3))
     {
         my_fprintf(stderr, "%s: tensor '%s' has wrong size in model file\n",
                    __func__, name.data());
@@ -1220,7 +1302,8 @@ static size_t load_single_tensor4d(FILE *f, const std::string &name,
     // of the same shape as the float tensor
     Eigen::Tensor<Eigen::half, 4, Eigen::RowMajor> tensor_half(ne[0], ne[1],
                                                                ne[2], ne[3]);
-    fread(tensor_half.data(), bpe_half, nelements, f);
+    if (mr_read(tensor_half.data(), bpe_half, (size_t)nelements, f) != (size_t)nelements)
+        return 0;
 
     // my_fprintf(stdout, "%16s: [%5d, %5d, %5d, %5d], type = float, %6.2f
     // MB\n", name.data(),
@@ -1245,11 +1328,13 @@ static size_t load_single_tensor4d(FILE *f, const std::string &name,
     return nbytes_tensor;
 }
 
-static size_t load_single_tensor1d(FILE *f, const std::string &name,
+static size_t load_single_tensor1d(model_reader *f, const std::string &name,
                                    Eigen::Tensor1dXf &tensor, int *ne,
                                    int32_t nelements)
 {
-    if (tensor.size() != nelements)
+    // Flayr Chop: the shape must match too, not just the element count
+    // (the copy loops below index by ne[]).
+    if (tensor.size() != nelements || ne[0] != tensor.dimension(0))
     {
         my_fprintf(stderr, "%s: tensor '%s' has wrong size in model file\n",
                    __func__, name.data());
@@ -1266,7 +1351,8 @@ static size_t load_single_tensor1d(FILE *f, const std::string &name,
     // create a Eigen::half Eigen::Tensor to hold the quantized weights
     // of the same shape as the float tensor
     Eigen::Tensor<Eigen::half, 1, Eigen::RowMajor> tensor_half(ne[0]);
-    fread(tensor_half.data(), bpe_half, nelements, f);
+    if (mr_read(tensor_half.data(), bpe_half, (size_t)nelements, f) != (size_t)nelements)
+        return 0;
 
     // my_fprintf(stdout, "%16s: [%5d], type = float, %6.2f MB\n", name.data(),
     //        ne[0], nbytes_tensor / 1024.0 / 1024.0);
@@ -1280,11 +1366,13 @@ static size_t load_single_tensor1d(FILE *f, const std::string &name,
     return nbytes_tensor;
 }
 
-static size_t load_single_vector(FILE *f, const std::string &name,
+static size_t load_single_vector(model_reader *f, const std::string &name,
                                  Eigen::VectorXf &vector, int *ne,
                                  int32_t nelements)
 {
-    if (vector.size() != nelements)
+    // Flayr Chop: the shape must match too, not just the element count
+    // (the copy loops below index by ne[]).
+    if (vector.size() != nelements || ne[0] != vector.size())
     {
         my_fprintf(stderr, "%s: vector '%s' has wrong size in model file\n",
                    __func__, name.data());
@@ -1301,7 +1389,8 @@ static size_t load_single_vector(FILE *f, const std::string &name,
     // create a Eigen::half Eigen::Vector to hold the quantized weights
     // of the same shape as the float vector
     Eigen::Matrix<Eigen::half, Eigen::Dynamic, 1> vector_half(ne[0]);
-    fread(vector_half.data(), bpe_half, nelements, f);
+    if (mr_read(vector_half.data(), bpe_half, (size_t)nelements, f) != (size_t)nelements)
+        return 0;
 
     // my_fprintf(stdout, "%16s: [%5d], type = float, %6.2f MB\n", name.data(),
     //        ne[0], nbytes_vector / 1024.0 / 1024.0);
@@ -1328,13 +1417,11 @@ bool demucscpp_v3::load_demucs_v3_model(
 
     null_log() << "Loading model_file... " << std::endl;
 
-    FILE *f = open_model_file(model_file);
-    if (!f)
-    {
-        my_fprintf(stderr, "%s: failed to open %s\n", __func__,
-                   model_file.c_str());
+    std::vector<unsigned char> image;
+    if (!read_model_file(model_file, image))
         return false;
-    }
+    model_reader reader{image.data(), image.size(), 0};
+    model_reader *f = &reader;
 
     // verify magic
     uint32_t magic;
@@ -1342,12 +1429,13 @@ bool demucscpp_v3::load_demucs_v3_model(
     null_log() << "Checking the magic of model_file" << std::endl;
 
     // read the size of uint32_t bytes from f into magic
-    fread(&magic, sizeof(uint32_t), 1, f);
+    if (mr_read(&magic, sizeof(uint32_t), 1, f) != 1)
+        return false;
 
     if (magic != 0x646d6333) // dmc3 = v3 mmi
     {
         my_fprintf(stderr, "%s: invalid model data (bad magic)\n", __func__);
-        fclose(f);
+        mr_close(f);
         return false;
     }
 
@@ -1368,31 +1456,19 @@ bool demucscpp_v3::load_demucs_v3_model(
 
     for (;;)
     {
-        int32_t n_dims;
-        int32_t length;
-
-        fread(&n_dims, sizeof(int32_t), 1, f);
-        fread(&length, sizeof(int32_t), 1, f);
-
+        // Flayr Chop: the header is untrusted input; every field is checked
+        // (the original trusted n_dims, which overflowed ne[4] on the stack).
         int32_t nelements = 1;
-
-        // we are loading up to 4d tensors, so allocate 4 dims
         int32_t ne[4] = {1, 1, 1, 1};
-        for (int i = 0; i < n_dims; ++i)
-        {
-            fread(&ne[i], sizeof(int32_t), 1, f);
-            nelements *= ne[i];
-        }
-
         std::string name;
-        std::vector<char> tmp(length);               // create a buffer
-        fread(&tmp[0], sizeof(char), tmp.size(), f); // read to buffer
-        name.assign(&tmp[0], tmp.size());
-
-        // check if we reached eof of the open file f
-        if (feof(f))
+        const int header = read_tensor_header(f, ne, nelements, name);
+        if (header == 0)
+            break; // clean end of the model
+        if (header < 0)
         {
-            break;
+            my_fprintf(stderr, "%s: malformed tensor header\n", __func__);
+            mr_close(f);
+            return false;
         }
 
         // null_log() << "Loading tensor " << name << " with shape [" << ne[0]
@@ -2158,14 +2234,16 @@ bool demucscpp_v3::load_demucs_v3_model(
         {
             my_fprintf(stderr, "%s: failed to load %s\n", __func__,
                        name.c_str());
-            fclose(f); // Flayr Chop: do not leak the handle
+            mr_close(f);
             return false;
         }
         total_size += loaded_size;
         n_loaded++;
     }
 
-    fclose(f);
+    mr_close(f);
+    if (n_loaded == 0)
+        return false;
 
     // compute finish time in microseconds using std::chrono
 

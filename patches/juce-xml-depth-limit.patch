@@ -1,0 +1,51 @@
+Flayr Tune patch for JUCE 8.0.16-security (ea77444750de45e036e0279bb0291144bf8e3688).
+
+XmlDocument parses with one recursive call per nesting level
+(readNextElement -> readChildElements -> readNextElement), so text from a
+project file could nest deep enough to overflow the host's stack. Flayr Tune's
+pre-scan already bounds nesting by its tag cap, but the parser itself should
+never trust the depth: give it a hard limit of 64 levels, beyond which the
+parse fails (errorOccurred, so getDocumentElement returns nothing). Flayr
+Chop ships the identical change. Applied by CMakeLists.txt via FetchContent
+PATCH_COMMAND.
+
+Flayr-Patch-Marker: modules/juce_core/xml/juce_XmlDocument.cpp FLAYR_PATCH juce-xml-depth-limit
+Flayr-Patch-Marker: modules/juce_core/xml/juce_XmlDocument.h FLAYR_PATCH juce-xml-depth-limit
+
+diff --git a/modules/juce_core/xml/juce_XmlDocument.cpp b/modules/juce_core/xml/juce_XmlDocument.cpp
+index 55bc246..383db84 100644
+--- a/modules/juce_core/xml/juce_XmlDocument.cpp
++++ b/modules/juce_core/xml/juce_XmlDocument.cpp
+@@ -403,6 +403,20 @@ void XmlDocument::readQuotedString (String& result)
+ 
+ XmlElement* XmlDocument::readNextElement (const bool alsoParseSubElements)
+ {
++    // FLAYR_PATCH juce-xml-depth-limit: the parser recurses once per nesting level, so
++    // untrusted text could nest deep enough to overflow the stack. Fail the parse instead.
++    constexpr int maxElementDepth = 64;
++
++    if (elementDepth >= maxElementDepth)
++    {
++        setLastError ("elements nested too deeply", false);
++        outOfData = true;
++        return nullptr;
++    }
++
++    ++elementDepth;
++    const ScopeGuard depthGuard { [this] { --elementDepth; } };
++
+     XmlElement* node = nullptr;
+     skipNextWhiteSpace();
+ 
+diff --git a/modules/juce_core/xml/juce_XmlDocument.h b/modules/juce_core/xml/juce_XmlDocument.h
+index 1c9c7dc..6828ebe 100644
+--- a/modules/juce_core/xml/juce_XmlDocument.h
++++ b/modules/juce_core/xml/juce_XmlDocument.h
+@@ -165,6 +165,7 @@ private:
+     String lastError, dtdText;
+     StringArray tokenisedDTD;
+     bool needToLoadDTD = false, ignoreEmptyTextElements = true;
++    int elementDepth = 0; // FLAYR_PATCH juce-xml-depth-limit
+     std::unique_ptr<InputSource> inputSource;
+ 
+     std::unique_ptr<XmlElement> parseDocumentElement (String::CharPointerType, bool outer);

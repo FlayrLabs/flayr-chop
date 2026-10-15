@@ -419,11 +419,20 @@ static void testPreviewAndPadRenders()
 
 int main()
 {
+    // Unbuffered, so a CI log that ends in a crash still shows the last section reached.
+    std::setvbuf (stdout, nullptr, _IONBF, 0);
+    std::setvbuf (stderr, nullptr, _IONBF, 0);
+    std::printf ("-- testPreviewAndPadRenders\n");
     testPreviewAndPadRenders();
+    std::printf ("-- testStemsAndKeys\n");
     testStemsAndKeys();
+    std::printf ("-- testStretchAccuracy\n");
     testStretchAccuracy();
+    std::printf ("-- testChunkedMatchesFull\n");
     testChunkedMatchesFull();
+    std::printf ("-- testRendererPublishes\n");
     testRendererPublishes();
+    std::printf ("-- testPads\n");
     testPads();
     std::printf (failures == 0 ? "sampler_test: all passed\n" : "sampler_test: %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;

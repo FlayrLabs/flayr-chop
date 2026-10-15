@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
 
 namespace chop::stems::detail {
 
@@ -11,6 +12,8 @@ constexpr int kZeroCrossings = 32;
 constexpr int kPhasesPerCrossing = 4096;
 constexpr double kBeta = 10.0;
 constexpr double kRolloff = 0.95;
+constexpr double kMaxRatio = 256.0;            // 768 kHz <-> 3 kHz; real rate pairs are far inside
+constexpr long long kMaxPolyTaps = 1LL << 22;  // 16 MB of polyphase table at most
 
 double besselI0(double x)
 {
@@ -27,6 +30,11 @@ double besselI0(double x)
 
 SincResampler::SincResampler(double inRate, double outRate)
 {
+    // The kernel widens with the downsampling ratio and the polyphase table with the reduced rate
+    // ratio, so absurd rates (from a damaged file header, say) would ask for gigabytes.
+    if (!std::isfinite(inRate) || !std::isfinite(outRate) || inRate <= 0.0 || outRate <= 0.0 ||
+        inRate / outRate > kMaxRatio || outRate / inRate > kMaxRatio)
+        throw std::invalid_argument("SincResampler: unsupported sample rates");
     step_ = inRate / outRate;
     cutoff_ = 0.5 * std::min(1.0, outRate / inRate) * kRolloff;
     halfWidth_ = kZeroCrossings / (2.0 * cutoff_);
@@ -53,7 +61,7 @@ SincResampler::SincResampler(double inRate, double outRate)
         const long phases = (long)orr / g;
         half_ = (int)std::ceil(halfWidth_);
         taps_ = 2 * half_;
-        if (phases <= 4096) {
+        if (phases <= 4096 && (long long)phases * taps_ <= kMaxPolyTaps) {
             inRateInt_ = (long)ir;
             outRateInt_ = (long)orr;
             gcd_ = g;

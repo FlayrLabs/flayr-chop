@@ -1,0 +1,32 @@
+Flayr Tune patch for JUCE 8.0.16-security (ea77444750de45e036e0279bb0291144bf8e3688).
+
+XmlDocument::readEntity, hex branch: on "&#x" followed by a non-hex character
+it reports an error, carries on, and steps over that character. When the
+character is the string's terminating null (input ending in "&#x", "&#x4",
+...), parsing continues past the end of the buffer: a heap over-read that a
+crafted project file could trigger in the host (found by tests/fuzz/fuzz_state
+with ASan; minimal input "<e>&#x"). Stop at the end of the text instead
+(the same code as Flayr Chop's fix, so both plug-ins ship the same JUCE).
+
+Flayr Tune also refuses such blobs before parsing (isSafeStateBlob), so this
+is defence in depth. Applied by CMakeLists.txt via FetchContent PATCH_COMMAND.
+
+Flayr-Patch-Marker: modules/juce_core/xml/juce_XmlDocument.cpp FLAYR_PATCH juce-xml-entity-overread v2
+
+diff --git a/modules/juce_core/xml/juce_XmlDocument.cpp b/modules/juce_core/xml/juce_XmlDocument.cpp
+index 4d40e0b7c7..55bc24659e 100644
+--- a/modules/juce_core/xml/juce_XmlDocument.cpp
++++ b/modules/juce_core/xml/juce_XmlDocument.cpp
+@@ -706,6 +706,12 @@ void XmlDocument::readEntity (String& result)
+ 
+             while (input[0] != ';')
+             {
++                if (input[0] == 0) // FLAYR_PATCH juce-xml-entity-overread v2: hex entity at the end of the text: don't step past it
++                {
++                    setLastError ("unexpected end of input", true);
++                    return;
++                }
++
+                 auto hexValue = CharacterFunctions::getHexDigitValue (input[0]);
+ 
+                 if (hexValue < 0 || ++numChars > 8)

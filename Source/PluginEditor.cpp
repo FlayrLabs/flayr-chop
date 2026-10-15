@@ -1780,16 +1780,25 @@ void FlayrChopEditor::layoutStems (juce::Rectangle<int> area)
 }
 
 //==============================================================================
-// Drops can carry several items (some hosts add companion files); the first audio file wins.
-static juce::File firstAudioFile (const juce::StringArray& items)
+// Drops can carry several items (some hosts add companion files); the first audio file wins. Text
+// drags come from anywhere (a web page, a chat), and the check runs while the drag only hovers, so
+// their paths get the same guard as project paths before anything is checked on disk: a hovering
+// \\host\share\a.wav must not make Windows connect (and send the user's credentials) to host.
+static juce::File firstAudioFile (const juce::StringArray& items, bool fromText)
 {
     for (auto item : items)
     {
         item = item.trim().unquoted();
         if (item.startsWithIgnoreCase ("file://"))
+        {
+            if (fromText && ! item.startsWithIgnoreCase ("file:///"))
+                continue; // file://host/... names another machine
             item = juce::URL (item).getLocalFile().getFullPathName();
+        }
+        if (! juce::File::isAbsolutePath (item) || (fromText && ! chop::isSafeProjectPath (item)))
+            continue;
         const juce::File f (item);
-        if (juce::File::isAbsolutePath (item) && f.existsAsFile() && chop::isAudioFile (f))
+        if (chop::isAudioFile (f) && f.existsAsFile())
             return f;
     }
     return {};
@@ -1797,25 +1806,25 @@ static juce::File firstAudioFile (const juce::StringArray& items)
 
 bool FlayrChopEditor::isInterestedInFileDrag (const juce::StringArray& files)
 {
-    return firstAudioFile (files) != juce::File();
+    return firstAudioFile (files, false) != juce::File();
 }
 
 void FlayrChopEditor::filesDropped (const juce::StringArray& files, int, int)
 {
     fileHover = false;
-    loadDropped (firstAudioFile (files));
+    loadDropped (firstAudioFile (files, false));
     repaint();
 }
 
 bool FlayrChopEditor::isInterestedInTextDrag (const juce::String& text)
 {
-    return firstAudioFile (juce::StringArray::fromLines (text)) != juce::File();
+    return firstAudioFile (juce::StringArray::fromLines (text), true) != juce::File();
 }
 
 void FlayrChopEditor::textDropped (const juce::String& text, int, int)
 {
     fileHover = false;
-    loadDropped (firstAudioFile (juce::StringArray::fromLines (text)));
+    loadDropped (firstAudioFile (juce::StringArray::fromLines (text), true));
     repaint();
 }
 

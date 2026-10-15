@@ -1,0 +1,220 @@
+Flayr Tune patch for JUCE 8.0.16-security (ea77444750de45e036e0279bb0291144bf8e3688).
+
+The VST3 wrapper appends "[int64 0][private ValueTree][int64 size]JUCEPrivateData"
+to the plug-in state and, on load, parsed that trailer before the plug-in saw
+anything. It trusted the 64-bit size from the project file (a size larger than
+the data wrapped the arithmetic and read far outside the buffer: SIGSEGV in
+ValueTree::readFromStream) and read the private data with the recursive
+ValueTree::readFromData (400k nested children overflowed the stack). Both are
+reachable in any plug-in without its own bypass parameter, because the wrapper
+then adds one.
+
+detail/juce_VST3PrivateState.h (new, header-only so fuzz targets can run the
+same code) checks the size against the bytes present, refuses a malformed
+trailer outright, caps the private data at 4 KB, and reads only the Bypass
+flag, never children.
+
+Applied by CMakeLists.txt via FetchContent PATCH_COMMAND.
+
+Flayr-Patch-Marker: modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp FLAYR_PATCH juce-vst3-private-state
+Flayr-Patch-Marker: modules/juce_audio_plugin_client/detail/juce_VST3PrivateState.h FLAYR_PATCH juce-vst3-private-state v2
+
+diff --git a/modules/juce_audio_plugin_client/detail/juce_VST3PrivateState.h b/modules/juce_audio_plugin_client/detail/juce_VST3PrivateState.h
+new file mode 100644
+index 0000000000..14df13df4f
+--- /dev/null
++++ b/modules/juce_audio_plugin_client/detail/juce_VST3PrivateState.h
+@@ -0,0 +1,111 @@
++/*
++  ==============================================================================
++
++   Flayr patch (not part of upstream JUCE). FLAYR_PATCH juce-vst3-private-state v2
++
++   The VST3 wrapper appends its own data to the plug-in's state:
++
++       [plug-in state] [int64 0] [private ValueTree] [int64 private size] "JUCEPrivateData"
++
++   Upstream trusted the 64-bit size from the project file (a size larger than the
++   data made the wrapper read far outside the buffer) and parsed the private data
++   with the recursive ValueTree::readFromData (a deeply nested tree overflowed the
++   stack), all before the plug-in's own setStateInformation could check anything.
++
++   split() checks the size against the data actually present; readBypass() reads the
++   only value the wrapper stores (the Bypass flag) from at most maxPrivateBytes with
++   no recursion. Header-only so fuzz targets can drive exactly the code the wrapper runs.
++
++  ==============================================================================
++*/
++
++#pragma once
++
++#include <juce_core/juce_core.h>
++
++#include <cstring>
++#include <optional>
++
++namespace juce::detail
++{
++
++struct VST3PrivateState
++{
++    static constexpr const char* identifier = "JUCEPrivateData";
++    static constexpr size_t maxPrivateBytes = 4096; // what JUCE writes is ~40 bytes
++
++    struct Split
++    {
++        bool valid = true;            // false: a malformed trailer, load nothing at all
++        size_t pluginStateSize = 0;   // bytes at the start that belong to the plug-in
++        const char* privateData = nullptr;
++        size_t privateSize = 0;
++    };
++
++    static Split split (const void* data, size_t size)
++    {
++        const auto idLen = std::strlen (identifier);
++        const auto* buffer = static_cast<const char*> (data);
++
++        if (buffer == nullptr || size < idLen + sizeof (uint64)
++            || std::memcmp (buffer + size - idLen, identifier, idLen) != 0)
++            return { true, size, nullptr, 0 }; // no trailer: everything is plug-in state
++
++        uint64 privateSize = 0;
++        std::memcpy (&privateSize, buffer + size - idLen - sizeof (uint64), sizeof (uint64));
++        privateSize = ByteOrder::swapIfBigEndian (privateSize);
++
++        // Bytes before the size field must hold the leading int64 and the private data.
++        const auto before = size - idLen - sizeof (uint64);
++
++        if (before < sizeof (uint64) || privateSize > before - sizeof (uint64))
++            return { false, 0, nullptr, 0 };
++
++        const auto privateBytes = (size_t) privateSize;
++        return { true, before - privateBytes - sizeof (uint64), buffer + before - privateBytes, privateBytes };
++    }
++
++    // The Bypass property of the private ValueTree, if present and well formed.
++    // Children are never read, so nesting can't recurse.
++    static std::optional<bool> readBypass (const char* data, size_t size)
++    {
++        if (data == nullptr || size == 0 || size > maxPrivateBytes)
++            return {};
++
++        MemoryInputStream in (data, size, false);
++
++        if (in.readString() != identifier)
++            return {};
++
++        const auto numProps = in.readCompressedInt();
++
++        if (numProps < 0 || numProps > 16)
++            return {};
++
++        std::optional<bool> result;
++
++        for (int i = 0; i < numProps; ++i)
++        {
++            const auto name = in.readString();
++            const auto numBytes = in.readCompressedInt();
++
++            if (numBytes <= 0 || numBytes > in.getNumBytesRemaining())
++                return {};
++
++            const auto start = in.getPosition();
++            const auto marker = in.readByte();
++
++            // var::writeToStream markers: 1 int (4 bytes follow), 2 true, 3 false.
++            if (name == "Bypass" && numBytes == 1 && (marker == 2 || marker == 3))
++                result = (marker == 2);
++            else if (name == "Bypass" && numBytes == 5 && marker == 1)
++                result = (in.readInt() != 0);
++
++            in.setPosition (start + numBytes);
++        }
++
++        return result;
++    }
++};
++
++} // namespace juce::detail
+diff --git a/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp b/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
+index 40d8a74732..0a2025f1d1 100644
+--- a/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
++++ b/modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp
+@@ -57,6 +57,7 @@ JUCE_BEGIN_NO_SANITIZE ("vptr")
+ #include <juce_audio_plugin_client/detail/juce_CheckSettingMacros.h>
+ #include <juce_audio_plugin_client/detail/juce_IncludeSystemHeaders.h>
+ #include <juce_audio_plugin_client/detail/juce_PluginUtilities.h>
++#include <juce_audio_plugin_client/detail/juce_VST3PrivateState.h> // FLAYR_PATCH juce-vst3-private-state
+ #include <juce_audio_plugin_client/detail/juce_PluginScaleFactorUtilities.h>
+ #include <juce_audio_plugin_client/detail/juce_LinuxMessageThread.h>
+ #include <juce_audio_plugin_client/detail/juce_VSTWindowUtilities.h>
+@@ -2742,14 +2743,14 @@ public:
+         }
+     }
+ 
+-    void setJucePrivateStateInformation (const void* data, int sizeInBytes)
++    void setJucePrivateStateInformation (const char* data, size_t sizeInBytes)
+     {
+         if (pluginInstance->getBypassParameter() == nullptr)
+         {
+             if (comPluginInstance->getBypassParameter() != nullptr)
+             {
+-                auto privateData = ValueTree::readFromData (data, static_cast<size_t> (sizeInBytes));
+-                setBypassed (static_cast<bool> (privateData.getProperty ("Bypass", var (false))));
++                // Flayr patch: bounded, non-recursive read of the one value we store.
++                setBypassed (detail::VST3PrivateState::readBypass (data, sizeInBytes).value_or (false));
+             }
+         }
+     }
+@@ -2782,40 +2783,21 @@ public:
+         auto& flagToSet = juceVST3EditController != nullptr ? juceVST3EditController->inSetState : unusedState;
+         const ScopedValueSetter<bool> scope (flagToSet, true);
+ 
+-        auto size = (uint64) sizeAsInt;
+-
+-        // Check if this data was written with a newer JUCE version
+-        // and if it has the JUCE private data magic code at the end
+-        auto jucePrivDataIdentifierSize = std::strlen (kJucePrivateDataIdentifier);
+-
+-        if ((size_t) size >= jucePrivDataIdentifierSize + sizeof (int64))
+-        {
+-            auto buffer = static_cast<const char*> (data);
+-
+-            String magic (CharPointer_UTF8 (buffer + size - jucePrivDataIdentifierSize),
+-                          CharPointer_UTF8 (buffer + size));
+-
+-            if (magic == kJucePrivateDataIdentifier)
+-            {
+-                // found a JUCE private data section
+-                uint64 privateDataSize;
+-
+-                std::memcpy (&privateDataSize,
+-                             buffer + ((size_t) size - jucePrivDataIdentifierSize - sizeof (uint64)),
+-                             sizeof (uint64));
++        // Flayr patch: the private-data size comes from the project file, so it is checked
++        // against the bytes present (detail::VST3PrivateState); a malformed trailer loads nothing.
++        if (data == nullptr || sizeAsInt <= 0)
++            return;
+ 
+-                privateDataSize = ByteOrder::swapIfBigEndian (privateDataSize);
+-                size -= privateDataSize + jucePrivDataIdentifierSize + sizeof (uint64);
++        const auto split = detail::VST3PrivateState::split (data, (size_t) sizeAsInt);
+ 
+-                if (privateDataSize > 0)
+-                    setJucePrivateStateInformation (buffer + size, static_cast<int> (privateDataSize));
++        if (! split.valid)
++            return;
+ 
+-                size -= sizeof (uint64);
+-            }
+-        }
++        if (split.privateSize > 0)
++            setJucePrivateStateInformation (split.privateData, split.privateSize);
+ 
+-        if (size > 0)
+-            pluginInstance->setStateInformation (data, static_cast<int> (size));
++        if (split.pluginStateSize > 0)
++            pluginInstance->setStateInformation (data, static_cast<int> (split.pluginStateSize));
+     }
+ 
+     //==============================================================================
