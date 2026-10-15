@@ -1,13 +1,13 @@
-Flayr Chop 1.2.0
+Flayr Chop 1.2.1
 
-- Live chopping: press PLAY (or space) and hit an empty pad to drop a cue where the music is. Late taps snap back to the hit you meant (SNAP off for exact placement).
-- One playhead: click the waveform to move it; it follows whatever is playing, the track or the pad you just hit, and stays where the sound stopped.
-- Edit cues on the waveform: drag a cue's flag or line to move it, drag on empty waveform to pull out a new cue, drag the tab under a selected slice to set its end, and nudge with < > or the arrow keys (shift: a 16th note).
-- Pads: computer-key triggers (A W S E D F T G / Y H U J K O L ;), shift-click multi-select with multi-edit, drag a pad onto another to move it (Option-drag to copy), SELECT ALL, DELETE and CLEAR ALL (this bank, all banks, or all but favorites), and favorites that auto-chop leaves alone.
-- Per pad: key shift and time stretch with HQ Stretch, plus a new filter.
-- New auto-chop modes: Slicer from playhead (1/16 note to 4 bars), Random, and Key shift pad.
-- PLAY never doubles the track: it cuts pads still ringing, STOP silences everything, and in mono a pad hit takes over from the track.
-- Drag several pads out at once. Dragged slices are saved in Music/Flayr Chop/Slices, so your DAW keeps finding them.
-- Dropping files from DAW browsers that hand over a text path or several files now works.
+Security update. Please update: 1.2.0 can be crashed, and in one case made to overwrite memory, by a crafted audio file or project.
 
-The stem model (84 MB) downloads on first use. See the README for install steps.
+- Audio files: a crafted WAV/RF64 header could overflow memory, and files that claim impossible sample rates or lengths could exhaust memory. Every file now goes through one checked reader, with limits on rate, length and memory.
+- Projects and presets: hostile saved state (XML tricks, huge allocations, NaN values, VST3 trailer data) is refused before it can crash or freeze your DAW.
+- Network paths stored in a project (Windows shares, /net, smb:) are never touched when the project opens; the sample shows as missing until you relink it.
+- The stem model's SHA-256 is now checked every time it loads, not only after the download, and its file parser is hardened.
+- Several bugs in JUCE's MP3, CAF, WAV, AIFF and XML readers found by fuzzing are patched. Built on JUCE 8.0.16-security.
+- Logic Pro: projects whose samples live in places Logic's plug-in sandbox can't read (like ~/Music/Logic or Downloads) now reopen with sound. Chop keeps a copy of each loaded sample in Music/Flayr Chop/Samples.
+- All eight auto-chop modes now restore with your project.
+
+The stem model (84 MB) downloads on first use. See the README for install steps and SECURITY.md for how to verify your download.
