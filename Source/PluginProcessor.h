@@ -139,6 +139,7 @@ public:
     int bank = 0;
     int chopModeUI = 0, chopCountUI = 16;
     bool snapUI = true;
+    bool followMidiUI = true; // Follow MIDI: a pad played from the host's MIDI becomes the selected pad
 
     juce::AudioProcessorValueTreeState apvts;
     chop::Sampler sampler;
@@ -174,6 +175,8 @@ private:
     juce::AbstractFifo cueFifo { 64 };
     std::array<std::pair<int, float>, 64> cueHits {};
     void drainCueHits();
+    std::atomic<int> midiHitPad { -1 }; // the pad the host's last note-on hit, for Follow MIDI
+    void followMidiHit();
 
     // Message-thread model.
     std::shared_ptr<chop::LoadedSample> sample;
