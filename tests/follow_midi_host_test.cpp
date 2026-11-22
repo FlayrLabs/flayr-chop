@@ -30,6 +30,16 @@ static juce::String expectedTitle (int pad)
          + juce::String (pad % chop::kPadsPerBank + 1);
 }
 
+// Runs the message loop (and so the processor's 30 Hz timer) until `done`, up to 5 s: a cold CI
+// runner can take longer than a fixed pump for the first timer tick. A short settle follows.
+template <typename F> static void pumpUntil (F done)
+{
+    const auto t0 = juce::Time::getMillisecondCounterHiRes();
+    while (! done() && juce::Time::getMillisecondCounterHiRes() - t0 < 5000.0)
+        pump (0.02);
+    pump (0.1);
+}
+
 // The pad settings panel's title, read off the editor's components ("PAD A4", or "N PADS").
 static juce::String panelTitle (juce::Component& root)
 {
@@ -108,7 +118,7 @@ int main()
         for (const auto& [events, want] : seq)
         {
             block (events);
-            pump (0.1); // message loop + the processor's 30 Hz timer
+            pumpUntil ([&] { return proc.selectedPad == want; }); // message loop + the processor's 30 Hz timer
             const auto title = panelTitle (*ed);
             std::printf ("  after MIDI: selected %d, panel '%s'\n", proc.selectedPad, title.toRawUTF8());
             check (proc.selectedPad == want && proc.getSelection() == std::vector<int> { want }
@@ -118,7 +128,7 @@ int main()
         // Several blocks between two timer ticks.
         block ({ { 2, 100 } });
         block ({ { 9, 100 } });
-        pump (0.1);
+        pumpUntil ([&] { return proc.selectedPad == 9; });
         check (proc.selectedPad == 9 && panelTitle (*ed) == expectedTitle (9), "last of several blocks wins");
 
         // A mouse click on a pad still selects it.
