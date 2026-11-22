@@ -161,6 +161,20 @@ if(FLAYR_CHOP_BUILD_TESTS)
         signalsmith-stretch ${FLAYR_CHOP_STEMS_TARGET})
     add_test(NAME processor_state_test COMMAND processor_state_test)
 
+    # Follow MIDI with the editor open, as a host sends notes (issue #7). It builds the editor and
+    # clicks a pad, so it runs where there is a window system (the macOS job).
+    if(APPLE)
+        juce_add_console_app(follow_midi_host_test PRODUCT_NAME "follow_midi_host_test")
+        target_sources(follow_midi_host_test PRIVATE tests/follow_midi_host_test.cpp ${FLAYR_CHOP_SOURCES})
+        target_include_directories(follow_midi_host_test PRIVATE Source)
+        target_compile_definitions(follow_midi_host_test PRIVATE
+            JucePlugin_Name="Flayr Chop" JucePlugin_VersionString="${PROJECT_VERSION}" JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
+            JUCE_USE_MP3AUDIOFORMAT=1 JUCE_USE_FLAC=1 JUCE_MODAL_LOOPS_PERMITTED=1)
+        target_link_libraries(follow_midi_host_test PRIVATE juce::juce_audio_utils juce::juce_cryptography juce::juce_recommended_config_flags
+            signalsmith-stretch ${FLAYR_CHOP_STEMS_TARGET})
+        add_test(NAME follow_midi_host_test COMMAND follow_midi_host_test)
+    endif()
+
     # Crafted files, states and paths through the real processor (security regressions).
     juce_add_console_app(hardening_test PRODUCT_NAME "hardening_test")
     target_sources(hardening_test PRIVATE tests/hardening_test.cpp ${FLAYR_CHOP_SOURCES})
