@@ -81,6 +81,8 @@ project doesn't separate again.
    on the bottom rows, Y H U J K O L ; above). Shift-click to select several and every knob
    changes them all. Drag a pad onto another to move it, Option-drag to copy. **SELECT ALL**,
    **DELETE** (or backspace) and **CLEAR ALL** work on cues; favorites survive auto-chop.
+   With **FOLLOW MIDI** on (the default), a pad you play from your controller or DAW becomes the
+   selected pad, so its settings show; switch it off to keep them on the pad you clicked.
 5. Set the **KEY** and **TEMPO** you want. If a detection is off (marked **?** when unsure),
    click the BPM or key for alternatives, use **/2**, **x2** or **TAP**, or type the tempo in.
 6. **Drag pads out** of the plug-in into your DAW (several at once when selected). Slices are

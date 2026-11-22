@@ -1050,6 +1050,10 @@ FlayrChopEditor::FlayrChopEditor (FlayrChopProcessor& owner) : AudioProcessorEdi
     keysBtn.setClickingTogglesState (true);
     keysBtn.setTooltip ("Play the selected pad across the keyboard (C3 = original). HQ Stretch keeps every note the same length.");
     keysAtt = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (s, "keys", keysBtn);
+    addAndMakeVisible (followBtn);
+    followBtn.setClickingTogglesState (true);
+    followBtn.setTooltip ("Follow MIDI: a pad played from your controller or the DAW becomes the selected pad, so its settings show here");
+    followBtn.onClick = [this] { proc.followMidiUI = followBtn.getToggleState(); };
     addAndMakeVisible (quantize);
     quantize.addItemList ({ "Off", "1/32", "1/16", "1/8", "1/4", "1/2", "1 Bar" }, 1);
     quantizeAtt = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (s, "quantize", quantize);
@@ -1249,6 +1253,7 @@ void FlayrChopEditor::refreshAll()
     chopMode.setSelectedId (proc.chopModeUI + 1, juce::dontSendNotification);
     chopCount.setSelectedId (proc.chopCountUI, juce::dontSendNotification);
     snapBtn.setToggleState (proc.snapUI, juce::dontSendNotification);
+    followBtn.setToggleState (proc.followMidiUI, juce::dontSendNotification);
 
     if (s != nullptr && wave.viewLen <= 0.0)
         wave.resetView();
@@ -1734,8 +1739,10 @@ void FlayrChopEditor::resized()
         }
         g.removeFromTop (8);
         auto row = g.removeFromTop (28);
-        monoBtn.setBounds (row.removeFromLeft (row.getWidth() / 2).reduced (2, 2));
-        keysBtn.setBounds (row.reduced (2, 2));
+        const int bw = row.getWidth() / 3;
+        monoBtn.setBounds (row.removeFromLeft (bw).reduced (2, 2));
+        keysBtn.setBounds (row.removeFromLeft (bw).reduced (2, 2));
+        followBtn.setBounds (row.reduced (2, 2));
         g.removeFromTop (6);
         auto q = g.removeFromTop (26);
         quantizeLabel.setBounds (q.removeFromLeft (80));

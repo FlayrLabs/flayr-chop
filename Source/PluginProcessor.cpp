@@ -251,6 +251,20 @@ void FlayrChopProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
             sampler.stopTransport();
     }
 
+    // Follow MIDI: the pad the host's last note-on hits gets selected on the message thread (the
+    // editor's own notes are merged in below and never move the selection). Raw bytes, so nothing is
+    // copied; in keys mode notes are pitches of the selected pad, not pads.
+    if (! c.g.keysMode)
+    {
+        int lastPad = -1;
+        for (const auto meta : midi)
+            if (meta.numBytes >= 3 && (meta.data[0] & 0xf0) == 0x90 && meta.data[2] > 0)
+                if (const int pad = meta.data[1] - kFirstPadNote; pad >= 0 && pad < kNumPads)
+                    lastPad = pad;
+        if (lastPad >= 0)
+            midiHitPad.store (lastPad, std::memory_order_relaxed);
+    }
+
     // Notes from the editor play at the start of the block.
     {
         const auto scope = uiFifo.read (uiFifo.getNumReady());
@@ -1081,6 +1095,7 @@ void FlayrChopProcessor::timerCallback()
     }
 
     drainCueHits();
+    followMidiHit();
 
     if (source != nullptr)
     {
@@ -1221,6 +1236,17 @@ void FlayrChopProcessor::drainCueHits()
         apply (cueHits[(size_t) (scope.startIndex1 + i)]);
     for (int i = 0; i < scope.blockSize2; ++i)
         apply (cueHits[(size_t) (scope.startIndex2 + i)]);
+}
+
+void FlayrChopProcessor::followMidiHit()
+{
+    // Always taken, so a hit from while the option was off is never applied when it's switched on.
+    const int pad = midiHitPad.exchange (-1, std::memory_order_relaxed);
+    if (! followMidiUI || ! juce::isPositiveAndBelow (pad, kNumPads))
+        return;
+    if (pad == selectedPad && selection.count() == 1 && selection.test ((size_t) pad))
+        return; // already showing it: no refresh per hit
+    select (pad, false);
 }
 
 void FlayrChopProcessor::nudge (const std::vector<int>& which, double seconds)
@@ -1562,6 +1588,7 @@ juce::ValueTree FlayrChopProcessor::buildUiState() const
     ui.setProperty ("chopMode", chopModeUI, nullptr);
     ui.setProperty ("chopCount", chopCountUI, nullptr);
     ui.setProperty ("snap", snapUI, nullptr);
+    ui.setProperty ("followMidi", followMidiUI, nullptr);
     return ui;
 }
 
@@ -1788,6 +1815,7 @@ void FlayrChopProcessor::applyState (const juce::XmlElement& xml)
     chopModeUI = juce::jlimit (0, 7, (int) ui.getProperty ("chopMode", 0)); // the menu has 8 modes
     chopCountUI = juce::jlimit (4, 64, (int) ui.getProperty ("chopCount", 16));
     snapUI = ui.getProperty ("snap", true);
+    followMidiUI = ui.getProperty ("followMidi", true); // projects from before the option follow too
 
     const auto s = cleanSampleState (root.getChildWithName ("Sample"));
     const auto path = s.getProperty ("path").toString();

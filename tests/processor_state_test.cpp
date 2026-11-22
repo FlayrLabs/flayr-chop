@@ -215,6 +215,65 @@ int main()
         CHECK (near (sampleOf (a).getProperty ("bpm", 0.0), 110.0), "live restore: edit after load not saved");
     }
 
+    {
+        // Follow MIDI: the pad the host's last note-on hits becomes the selected pad (issue #7).
+        FlayrChopProcessor a;
+        a.prepareToPlay (48000.0, 512);
+        CHECK (a.followMidiUI, "follow: should be on by default");
+        juce::AudioBuffer<float> buf (2, 512);
+        auto play = [&] (std::initializer_list<std::pair<int, int>> notes) { // { note, velocity }
+            juce::MidiBuffer midi;
+            int at = 0;
+            for (auto [note, vel] : notes)
+                midi.addEvent (vel > 0 ? juce::MidiMessage::noteOn (1, note, (juce::uint8) vel) : juce::MidiMessage::noteOff (1, note), at += 10);
+            a.processBlock (buf, midi);
+            pump (0.1); // the processor's timer applies it
+        };
+        auto only = [&] (int pad) { return a.selectedPad == pad && a.getSelection() == std::vector<int> { pad }; };
+
+        play ({ { chop::kFirstPadNote + 3, 100 }, { chop::kFirstPadNote + 20, 90 } });
+        CHECK (only (20), "follow: last note-on should win, selected %d", a.selectedPad);
+        play ({ { chop::kFirstPadNote + 5, 100 } });
+        play ({ { chop::kFirstPadNote + 3, 100 } });
+        CHECK (only (3), "follow: across blocks, selected %d", a.selectedPad);
+        play ({ { chop::kFirstPadNote + 7, 0 }, { chop::kFirstPadNote - 1, 100 }, { chop::kFirstPadNote + chop::kNumPads, 100 } });
+        CHECK (only (3), "follow: note-offs and notes outside the pads must not select, selected %d", a.selectedPad);
+
+        // The editor's own notes (clicks, computer keys) never move the selection.
+        a.select (2, false);
+        a.select (4, true);
+        a.triggerFromUI (chop::kFirstPadNote + 4, true);
+        play ({});
+        CHECK (a.getSelection() == (std::vector<int> { 2, 4 }), "follow: a click's note collapsed the selection");
+
+        // Off: the old behaviour, and a hit from while it was off isn't applied when it comes back on.
+        a.select (1, false);
+        a.followMidiUI = false;
+        play ({ { chop::kFirstPadNote + 9, 100 } });
+        CHECK (only (1), "follow off: selection moved to %d", a.selectedPad);
+        a.followMidiUI = true;
+        pump (0.1);
+        CHECK (only (1), "follow: a stale hit was applied, selected %d", a.selectedPad);
+
+        // Keys mode: notes are pitches of the selected pad, not pads.
+        a.apvts.getParameter ("keys")->setValueNotifyingHost (1.0f);
+        play ({ { chop::kFirstPadNote + 12, 100 } });
+        CHECK (only (1), "follow: keys mode moved the selection to %d", a.selectedPad);
+        a.apvts.getParameter ("keys")->setValueNotifyingHost (0.0f);
+
+        // Saved with the project; projects from before the option follow.
+        a.followMidiUI = false;
+        pump (0.2);
+        FlayrChopProcessor b;
+        reopen (a, b);
+        CHECK (waitIdle (b) && ! b.followMidiUI, "follow: off was not restored");
+        FlayrChopProcessor c;
+        c.followMidiUI = false;
+        const auto st = projectState (missing);
+        c.setStateInformation (st.getData(), (int) st.getSize());
+        CHECK (waitIdle (c) && c.followMidiUI, "follow: an older project should restore it on");
+    }
+
     dir.deleteRecursively();
     std::printf ("processor_state_test: %d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;

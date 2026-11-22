@@ -221,7 +221,7 @@ private:
 
     // Global
     Knob volume, filter, velocity;
-    juce::TextButton monoBtn { "MONO" }, keysBtn { "KEYS" }, snapBtn { "SNAP" }, chopBtn { "CHOP" };
+    juce::TextButton monoBtn { "MONO" }, keysBtn { "KEYS" }, followBtn { "FOLLOW MIDI" }, snapBtn { "SNAP" }, chopBtn { "CHOP" };
     juce::ComboBox quantize, chopMode, chopCount, chopSpacing;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> monoAtt, keysAtt;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> quantizeAtt;
